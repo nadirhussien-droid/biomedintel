@@ -1,0 +1,49 @@
+// Runs once before the test suite:
+//   1. refuses to touch any database whose name does not end in _test;
+//   2. checks every migration has been applied to the test database;
+//   3. wipes all rows and loads the fictional seed data.
+import fs from "node:fs";
+import path from "node:path";
+import { config as loadEnv } from "dotenv";
+import { adminClient, databaseName } from "../scripts/lib/admin-db";
+import { seed } from "../prisma/seed";
+import { TEST_PASSWORD } from "./constants";
+
+export default async function setup() {
+  loadEnv({ quiet: true });
+  const url = process.env.DATABASE_URL_ADMIN_TEST;
+  const appUrl = process.env.DATABASE_URL_TEST;
+  if (!url || !appUrl) throw new Error("Set DATABASE_URL_TEST and DATABASE_URL_ADMIN_TEST in .env (see .env.example).");
+  for (const u of [url, appUrl]) {
+    if (!databaseName(u).endsWith("_test"))
+      throw new Error(`Refusing to run tests: "${databaseName(u)}" is not a _test database.`);
+  }
+
+  const db = adminClient(url);
+  try {
+    const applied = await db.$queryRaw<{ migration_name: string }[]>`
+      SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.catch(
+      () => [],
+    );
+    const expected = fs
+      .readdirSync(path.join(process.cwd(), "prisma/migrations"), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+    const missing = expected.filter((m) => !applied.some((a) => a.migration_name === m));
+    if (missing.length) {
+      throw new Error(`The test database is missing migrations (${missing.join(", ")}). Run: npm run db:test:prepare`);
+    }
+
+    // Wipe test data. The audit log is append-only, so the OWNER role briefly
+    // disables its protective trigger — possible only for the table owner,
+    // never for the application role, and only in this _test database.
+    await db.$executeRawUnsafe(`
+      ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate;
+      TRUNCATE audit_logs, membership_scopes, memberships, departments, hospitals, organizations,
+               auth_two_factors, auth_sessions, auth_accounts, auth_verifications, users;
+      ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate;`);
+    await seed(db, TEST_PASSWORD, { quiet: true });
+  } finally {
+    await db.$disconnect();
+  }
+}

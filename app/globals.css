@@ -1,26 +1,53 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* BiomedIntel.ai brand tokens (Stage 1 design system).
+   Deep navy #102D46 and Intelligence teal #55D6C2 are the identity colours.
+   Teal is never used as text on white (1.8:1): teal text uses teal-700. */
+@theme {
+  --font-sans: var(--font-inter), "Segoe UI", system-ui, sans-serif;
+
+  --color-navy-950: #0a1c2c;
+  --color-navy-900: #102d46;
+  --color-navy-800: #163a59;
+  --color-navy-700: #24445f;
+  --color-teal-300: #8be6d8;
+  --color-teal-400: #55d6c2;
+  --color-teal-500: #45c7b3;
+  --color-teal-700: #0b7566;
+
+  --color-surface: #f4f7fa;
+  --color-surface-sunken: #eaf0f5;
+  --color-ink: #102d46;
+  --color-ink-muted: #4a6177;
+  --color-line: #d9e2ea;
+  --color-line-strong: #8a9db0;
+
+  --color-ok: #1e7a4f;
+  --color-ok-bg: #e3f3ea;
+  --color-warn: #9a5b00;
+  --color-warn-bg: #fbefd9;
+  --color-danger: #b42f27;
+  --color-danger-bg: #f9e3e1;
+  --color-info: #2763a3;
+  --color-info-bg: #e3edf8;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-teal-700);
+  outline-offset: 2px;
 }

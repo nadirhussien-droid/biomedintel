@@ -1,0 +1,302 @@
+// BiomedIntel.ai — foundational database schema (Stage 3)
+//
+// Source of truth: Stage 2 Technical Blueprint, section 4. This file implements
+// only the tables Stage 3 needs: tenancy, people and access, authentication and
+// audit. Equipment, maintenance, inventory, documents and AI tables come in
+// later stages.
+//
+// Rules that apply to every tenant table (see prisma/migrations/*_security):
+//   • `organization_id` on every row, with Row-Level Security (RLS) policies.
+//   • Composite foreign keys (organization_id, x_id) so a row can never point at
+//     another organisation's record.
+//   • No hard deletes of operational records: `archived_at` / status instead.
+//   • No patient data anywhere.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../server/db/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+/// Roles a user can hold inside ONE organisation (a membership).
+/// The Platform Super Administrator is NOT a membership role; it lives on the
+/// user record (`platform_role`) and is set only by the bootstrap script.
+enum MembershipRole {
+  ORG_ADMIN           // 2. Hospital Organization Administrator
+  ENGINEERING_MANAGER // 3. Hospital Biomedical Engineering Manager
+  TECHNICIAN          // 4. Biomedical Engineer or Technician
+  INVENTORY_MANAGER   // 5. Inventory Manager
+  DEPARTMENT_HEAD     // 6. Department Head or Facility Manager
+  AUDITOR             // 7. Read-only Auditor or Executive
+  FAULT_REPORTER      // 8. Fault Reporter (nurses and ward staff)
+
+  @@map("membership_role")
+}
+
+enum RecordStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("record_status")
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+
+  @@map("organization_status")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+
+  @@map("membership_status")
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+
+  @@map("audit_outcome")
+}
+
+// ─── Tenancy ─────────────────────────────────────────────────────────────────
+
+/// A customer: a hospital group, NGO network or a single hospital.
+model Organization {
+  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  slug       String             @unique
+  country    String?            @db.Char(2) // ISO 3166-1 alpha-2, e.g. "KE"
+  status     OrganizationStatus @default(ACTIVE)
+  archivedAt DateTime?          @map("archived_at") @db.Timestamptz(6)
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  hospitals        Hospital[]
+  departments      Department[]
+  memberships      Membership[]
+  membershipScopes MembershipScope[]
+
+  @@map("organizations")
+}
+
+/// A hospital or site belonging to one organisation.
+model Hospital {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  code           String // short code, unique inside the organisation, e.g. "RGH"
+  timezone       String       @default("Africa/Nairobi")
+  status         RecordStatus @default(ACTIVE)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  departments  Department[]
+  scopes       MembershipScope[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, id]) // target for composite foreign keys
+  @@index([organizationId, status])
+  @@map("hospitals")
+}
+
+/// A ward, unit or service inside a hospital, e.g. ICU.
+model Department {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  hospitalId     String       @map("hospital_id") @db.Uuid
+  name           String
+  code           String
+  status         RecordStatus @default(ACTIVE)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  // Composite FK: the hospital must belong to the SAME organisation.
+  hospital     Hospital          @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  scopes       MembershipScope[]
+
+  @@unique([organizationId, hospitalId, code])
+  @@unique([organizationId, id])
+  @@unique([organizationId, hospitalId, id])
+  @@index([organizationId, hospitalId, status])
+  @@map("departments")
+}
+
+// ─── People and access ───────────────────────────────────────────────────────
+
+/// Links a user to one organisation with one role.
+/// `orgWide = true` gives access to every hospital in the organisation;
+/// otherwise access comes only from `membership_scopes`.
+model Membership {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  userId         String           @map("user_id")
+  role           MembershipRole
+  orgWide        Boolean          @default(false) @map("org_wide")
+  status         MembershipStatus @default(ACTIVE)
+  createdById    String?          @map("created_by")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  scopes       MembershipScope[]
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, id])
+  @@index([userId, status])
+  @@map("memberships")
+}
+
+/// One hospital (and optionally one department) a membership may access.
+/// department_id NULL means "all departments in this hospital".
+/// Uniqueness (membership, hospital, department) with NULLS NOT DISTINCT is
+/// added in the security migration because Prisma cannot express it.
+model MembershipScope {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  membershipId   String   @map("membership_id") @db.Uuid
+  hospitalId     String   @map("hospital_id") @db.Uuid
+  departmentId   String?  @map("department_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  membership   Membership   @relation(fields: [organizationId, membershipId], references: [organizationId, id], onDelete: Cascade)
+  hospital     Hospital     @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  // Composite FK: the department must belong to the SAME organisation AND the SAME hospital.
+  department   Department?  @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+
+  @@index([organizationId, membershipId])
+  @@map("membership_scopes")
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────────────
+
+/// Append-only record of important actions. The database rejects UPDATE,
+/// DELETE and TRUNCATE on this table, and the app role is only granted
+/// SELECT and INSERT. No `updated_at`, because rows never change.
+model AuditLog {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String?      @map("organization_id") @db.Uuid // NULL for platform or sign-in events
+  actorUserId    String?      @map("actor_user_id") // no FK: the record must outlive any user change
+  action         String // e.g. "hospital.created", "authz.denied", "auth.sign_in"
+  outcome        AuditOutcome @default(SUCCESS)
+  entityType     String?      @map("entity_type")
+  entityId       String?      @map("entity_id")
+  metadata       Json?        // small, non-sensitive details; never passwords or tokens
+  ipAddress      String?      @map("ip_address")
+  userAgent      String?      @map("user_agent")
+  requestId      String?      @map("request_id")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, entityType, entityId])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+// ─── Authentication (managed by Better Auth) ─────────────────────────────────
+// Global tables: a person has ONE login, and memberships connect it to
+// organisations. These tables have no organization_id and no RLS; the app
+// reaches them only through Better Auth and the access-resolution code.
+
+model User {
+  id               String    @id
+  name             String
+  email            String    @unique
+  emailVerified    Boolean   @default(false) @map("email_verified")
+  image            String?
+  twoFactorEnabled Boolean?  @default(false) @map("two_factor_enabled")
+  /// "SUPER_ADMIN" for the Platform Super Administrator, otherwise NULL.
+  /// Set only by `npm run admin:bootstrap`; users can never set it themselves.
+  platformRole     String?   @map("platform_role")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sessions    Session[]
+  accounts    Account[]
+  twoFactors  TwoFactor[]
+  memberships Membership[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  token     String   @unique
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz(6)
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(6)
+  scope                 String?
+  password              String? // scrypt hash written by Better Auth; never plain text
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([identifier])
+  @@map("auth_verifications")
+}
+
+model TwoFactor {
+  id                      String    @id
+  secret                  String
+  backupCodes             String    @map("backup_codes")
+  userId                  String    @map("user_id")
+  verified                Boolean?  @default(true)
+  failedVerificationCount Int?      @default(0) @map("failed_verification_count")
+  lockedUntil             DateTime? @map("locked_until") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([secret])
+  @@index([userId])
+  @@map("auth_two_factors")
+}

@@ -1,0 +1,9 @@
+.next
+node_modules
+server/db/generated
+prisma/migrations
+public
+app/fonts
+coverage
+test-results
+package-lock.json

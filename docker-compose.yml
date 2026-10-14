@@ -1,0 +1,19 @@
+# Optional: a local PostgreSQL 16 for BiomedIntel.ai development.
+#   docker compose up -d
+# It runs scripts/db/setup-local.sql on first start, creating the
+# biomedintel_owner / biomedintel_app roles and the _dev and _test databases.
+# Local development only — the passwords are placeholders.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local_postgres_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - biomedintel-pgdata:/var/lib/postgresql/data
+      - ./scripts/db/setup-local.sql:/docker-entrypoint-initdb.d/01-setup.sql:ro
+volumes:
+  biomedintel-pgdata:
