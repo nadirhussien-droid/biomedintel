@@ -31,6 +31,7 @@ import {
   type CreateAssetInput,
 } from "@/lib/validation/assets";
 import { parseAssetCode } from "@/lib/asset-code";
+import { findStaff, notify } from "./notifications";
 
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1005,6 +1006,20 @@ export async function addWarranty(ctx: AccessContext, input: unknown) {
 }
 
 // ─── Decommissioning (decision 8: NUM approval) ──────────────────────────────
+
+/** Stage 2 rule: an asset with open work orders cannot be decommissioned. */
+async function refuseIfOpenWorkOrders(tx: Tx, assetId: string) {
+  const open = await tx.workOrder.findMany({
+    where: { assetId, status: { in: ["REQUESTED", "ASSIGNED", "IN_PROGRESS", "ON_HOLD"] } },
+    select: { number: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (open.length) {
+    throw new ValidationError(
+      `This asset has open work orders (${open.map((o) => o.number).join(", ")}). Complete or cancel them before decommissioning.`,
+    );
+  }
+}
 //
 // Who may approve (approved 14 Oct 2026):
 //   1. The NUM: a Department Head assigned to the asset's specific department.
@@ -1060,6 +1075,7 @@ export async function requestDecommission(ctx: AccessContext, input: unknown) {
       const current = await loadScopedAsset(ctx, tx, data.id, "asset.decommission_request");
       if (current.archivedAt) throw new ValidationError("This asset is archived.");
       if (current.status === "DECOMMISSIONED") throw new ValidationError("This asset is already decommissioned.");
+      await refuseIfOpenWorkOrders(tx, current.id);
       const event = await tx.lifecycleEvent.create({
         data: {
           organizationId: ctx.organization.id,
@@ -1080,6 +1096,29 @@ export async function requestDecommission(ctx: AccessContext, input: unknown) {
         metadata: { requestId: event.id, assetTag: current.assetTag },
         request: ctx.request,
       });
+      // Tell whoever may decide: the NUM(s) of the department; if none, the
+      // Engineering Manager(s) and Facility Manager(s) for the hospital.
+      const staff = await findStaff(tx, {
+        hospitalId: current.hospitalId,
+        departmentId: current.departmentId,
+        roles: ["DEPARTMENT_HEAD", "ENGINEERING_MANAGER"],
+      });
+      const nums = staff.filter((s) => s.role === "DEPARTMENT_HEAD" && s.coverage === "department");
+      const approvers = nums.length
+        ? nums
+        : staff.filter((s) => s.role === "ENGINEERING_MANAGER" || s.coverage !== "department");
+      await notify(
+        tx,
+        ctx,
+        approvers.map((a) => a.userId),
+        {
+          type: "asset.decommission_requested",
+          title: `Decommissioning approval needed: ${current.assetTag}`,
+          link: `/assets/${current.id}`,
+          entityType: "asset",
+          entityId: current.id,
+        },
+      );
       return event;
     });
   } catch (error) {
@@ -1101,6 +1140,7 @@ export async function decideDecommission(ctx: AccessContext, input: unknown) {
     if (!request) throw new NotFoundError("Request");
     const current = await loadScopedAsset(ctx, tx, request.assetId, "asset.decommission_decide");
     if (request.status !== "PENDING") throw new ValidationError("This request has already been decided.");
+    if (data.decision === "APPROVE") await refuseIfOpenWorkOrders(tx, current.id);
     const approver = await decommissionApproverKind(ctx, tx, current, request.requestedById);
     if (!approver) {
       const own = request.requestedById === ctx.user.id;

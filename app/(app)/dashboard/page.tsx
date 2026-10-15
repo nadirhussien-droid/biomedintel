@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireAccess } from "@/server/auth/session";
 import { getFoundationSummary } from "@/server/services/dashboard";
 import { getAssetStatusCounts } from "@/server/services/assets";
+import { getWorkOrderCounts } from "@/server/services/work-orders";
 import { ROLE_LABELS } from "@/server/authz/roles";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
@@ -14,7 +15,6 @@ export const metadata: Metadata = { title: "Dashboard" };
 const DEMO_KPIS = [
   { label: "PM completion · October", value: "90%", note: "371 of 412 done · 29 overdue" },
   { label: "Safety tests due (30 days)", value: "186", note: "4 failed tests need action" },
-  { label: "Open work orders", value: "64", note: "11 overdue · 142 completed this month" },
 ];
 
 function Stat({ label, value, note }: { label: string; value: string | number; note?: string }) {
@@ -29,9 +29,10 @@ function Stat({ label, value, note }: { label: string; value: string | number; n
 
 export default async function DashboardPage() {
   const ctx = await requireAccess();
-  const [summary, assets] = await Promise.all([
+  const [summary, assets, jobs] = await Promise.all([
     getFoundationSummary(ctx),
     getAssetStatusCounts(ctx, ctx.selection.hospitalId),
+    getWorkOrderCounts(ctx, ctx.selection.hospitalId),
   ]);
   const selectedHospital = ctx.hospitals.find((h) => h.id === ctx.selection.hospitalId);
 
@@ -71,6 +72,31 @@ export default async function DashboardPage() {
         </ul>
       </Card>
 
+      {jobs ? (
+        <Card>
+          <CardTitle
+            action={
+              <span className="flex items-center gap-3">
+                <Badge tone="ok">Live data</Badge>
+                <Link href="/work-orders" className="text-sm font-semibold text-teal-700 hover:underline">
+                  Open work orders
+                </Link>
+              </span>
+            }
+          >
+            Work orders
+          </CardTitle>
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-6">
+            <Stat label="Open jobs" value={jobs.open} note={`${jobs.mine} assigned to you`} />
+            <Stat label="Overdue" value={jobs.overdue} />
+            <Stat label="Waiting for a technician" value={jobs.triage} />
+            <Stat label="Safety-critical open" value={jobs.safety} />
+            <Stat label="Safety-critical to review" value={jobs.review} />
+            <Stat label="Completed this month" value={jobs.completedThisMonth} />
+          </div>
+        </Card>
+      ) : null}
+
       {assets ? (
         <Card>
           <CardTitle
@@ -103,7 +129,7 @@ export default async function DashboardPage() {
             hospital&apos;s data.
           </span>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2">
           {DEMO_KPIS.map((k) => (
             <Card key={k.label}>
               <div className="flex items-start justify-between gap-2">
@@ -118,8 +144,8 @@ export default async function DashboardPage() {
       <Card>
         <CardTitle>Coming next</CardTitle>
         <p className="text-ink-muted text-sm">
-          Stage 5 adds Work Order Management: fault reports from a scanned asset, assignment, repair records and
-          sign-off. Maintenance, testing, inventory, IntellKnowledge, IntellAssist and reports follow in later stages.
+          Stage 6 adds preventive maintenance schedules, electrical safety tests and calibration records. Inventory,
+          IntellKnowledge, IntellAssist and reports follow in later stages.
         </p>
       </Card>
     </>

@@ -7,6 +7,9 @@ import { can } from "@/server/authz/access";
 import { NotFoundError } from "@/server/authz/errors";
 import { withTenant } from "@/server/db/tenant";
 import { APPROVER_LABELS, getAsset } from "@/server/services/assets";
+import { listWorkOrdersForAsset } from "@/server/services/work-orders";
+import { PriorityBadge, WoStatusBadge } from "@/components/work-orders/badges";
+import { OUTCOME_LABELS } from "@/lib/validation/work-orders";
 import { code128 } from "@/server/barcode";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
@@ -70,6 +73,9 @@ export default async function AssetDetailPage({
   const pendingRequest = asset.lifecycleEvents.find((e) => e.status === "PENDING");
   const barcode = code128(asset.assetTag);
 
+  const workOrders = await listWorkOrdersForAsset(ctx, asset.id);
+  const openJobs = workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+  const serviceHistory = workOrders.filter((w) => w.status === "COMPLETED");
   const locations =
     can(ctx, "asset.edit") && editable
       ? await withTenant({ userId: ctx.user.id, organizationId: ctx.organization.id }, (tx) =>
@@ -93,6 +99,14 @@ export default async function AssetDetailPage({
             <Link href="/assets" className={`${linkButton} border-line-strong hover:bg-surface-sunken bg-white`}>
               Back to register
             </Link>
+            {can(ctx, "workorder.report") && editable ? (
+              <Link
+                href={`/work-orders/new?asset=${asset.id}`}
+                className={`${linkButton} border-danger/40 text-danger hover:bg-danger-bg bg-white`}
+              >
+                Report a fault
+              </Link>
+            ) : null}
             {can(ctx, "asset.labelPrint") && !archived ? (
               <Link
                 href={`/assets/labels?id=${asset.id}`}
@@ -318,16 +332,62 @@ export default async function AssetDetailPage({
         ) : null}
       </Card>
 
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardTitle>Work orders</CardTitle>
+          {openJobs.length === 0 ? (
+            <p className="text-ink-muted text-sm">No open jobs for this device.</p>
+          ) : (
+            <ul className="flex flex-col gap-2 text-sm">
+              {openJobs.map((w) => (
+                <li key={w.id} className="border-line flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                  <span>
+                    <Link
+                      href={`/work-orders/${w.id}`}
+                      className="font-mono font-semibold text-teal-700 hover:underline"
+                    >
+                      {w.number}
+                    </Link>{" "}
+                    <span className="text-ink-muted line-clamp-1">{w.faultDescription}</span>
+                  </span>
+                  <span className="flex gap-1">
+                    <PriorityBadge priority={w.priority} />
+                    <WoStatusBadge status={w.status} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card>
+          <CardTitle>Equipment service history</CardTitle>
+          {serviceHistory.length === 0 ? (
+            <p className="text-ink-muted text-sm">No completed jobs recorded in BiomedIntel.ai yet.</p>
+          ) : (
+            <ol className="flex flex-col gap-2 text-sm">
+              {serviceHistory.map((w) => (
+                <li key={w.id} className="border-line border-b pb-2">
+                  <Link href={`/work-orders/${w.id}`} className="font-mono font-semibold text-teal-700 hover:underline">
+                    {w.number}
+                  </Link>
+                  <span className="text-ink-muted">
+                    {" "}
+                    · {w.completedAt ? dateTime.format(w.completedAt) : ""} UTC ·{" "}
+                    {w.outcome ? OUTCOME_LABELS[w.outcome] : ""}
+                  </span>
+                  {w.resolution ? <div className="line-clamp-2">{w.resolution}</div> : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      </div>
+
       <Card>
-        <CardTitle action={<Badge tone="info">Coming in later stages</Badge>}>Maintenance and history</CardTitle>
-        <p className="text-ink-muted text-sm">
-          These sections are placeholders. They will show real records once each module is built. No maintenance records
-          exist for this asset yet.
-        </p>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CardTitle action={<Badge tone="info">Coming in later stages</Badge>}>More maintenance records</CardTitle>
+        <p className="text-ink-muted text-sm">Placeholders: these will show real records once each module is built.</p>
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            ["Work orders", 5],
-            ["Equipment service history", 5],
             ["Preventive maintenance schedule", 6],
             ["Calibration and safety tests", 6],
             ["Spare parts used", 7],

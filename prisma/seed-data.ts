@@ -140,7 +140,7 @@ export const DEMO_NOTE = "Fictional demonstration record — not a real device."
 
 export type SeedCatalog = {
   manufacturers: string[];
-  categories: { name: string; risk: "HIGH" | "MEDIUM" | "LOW"; pmMonths: number }[];
+  categories: { name: string; risk: "HIGH" | "MEDIUM" | "LOW"; pmMonths: number; safetyCritical?: boolean }[];
   models: { key: string; manufacturer: string; category: string; name: string; lifeYears: number }[];
 };
 
@@ -149,10 +149,12 @@ export const SEED_CATALOG: SeedCatalog = {
   // Default risk categories follow the Stage 2 starting list of safety-critical
   // device types (decision 9); each organisation can change them.
   categories: [
-    { name: "Infusion pump", risk: "HIGH", pmMonths: 12 },
+    { name: "Infusion pump", risk: "HIGH", pmMonths: 12, safetyCritical: true },
     { name: "Patient monitor", risk: "MEDIUM", pmMonths: 12 },
-    { name: "Defibrillator", risk: "HIGH", pmMonths: 6 },
-    { name: "Ventilator", risk: "HIGH", pmMonths: 6 },
+    { name: "Defibrillator", risk: "HIGH", pmMonths: 6, safetyCritical: true },
+    { name: "Ventilator", risk: "HIGH", pmMonths: 6, safetyCritical: true },
+    { name: "Anaesthesia machine", risk: "HIGH", pmMonths: 6, safetyCritical: true },
+    { name: "Electrosurgical unit", risk: "HIGH", pmMonths: 12, safetyCritical: true },
     { name: "Suction unit", risk: "LOW", pmMonths: 12 },
     { name: "ECG machine", risk: "MEDIUM", pmMonths: 12 },
   ],
@@ -429,6 +431,81 @@ export const SEED_ASSETS: Record<string, SeedAsset[]> = {
       serial: "DEMO-SN-6201",
       status: "IN_SERVICE",
       risk: "MEDIUM",
+    },
+  ],
+};
+
+// ─── Fictional work orders (Stage 5) ─────────────────────────────────────────
+// FICTIONAL DEMONSTRATION DATA. Faults and repairs are invented; no patient
+// information. Chosen so they do not interfere with the decommissioning demo
+// (open jobs block decommissioning).
+
+export type SeedWorkOrder = {
+  asset: string; // asset tag
+  status: "REQUESTED" | "ASSIGNED" | "IN_PROGRESS" | "COMPLETED";
+  priority: "URGENT" | "HIGH" | "MEDIUM" | "LOW";
+  reportedBy: string; // email
+  assignedTo?: string; // email
+  outOfUse?: boolean;
+  fault: string;
+  daysAgo: number;
+  work?: { description: string; minutes: number }[];
+  completion?: { diagnosis: string; resolution: string };
+};
+
+export const SEED_WORK_ORDERS: Record<string, SeedWorkOrder[]> = {
+  "coastal-health": [
+    {
+      asset: "MON-0002",
+      status: "COMPLETED",
+      priority: "MEDIUM",
+      reportedBy: "hodan.ali@coastal.example",
+      assignedTo: "amina.warsame@coastal.example",
+      fault: "Fictional example: SpO2 reading drops out intermittently during transport.",
+      daysAgo: 9,
+      work: [
+        { description: "Inspected SpO2 cable and connector; found worn strain relief", minutes: 25 },
+        {
+          description: "Replaced SpO2 extension cable from workshop stock; functional check with simulator",
+          minutes: 35,
+        },
+      ],
+      completion: {
+        diagnosis: "Fictional example: damaged SpO2 extension cable causing intermittent signal loss.",
+        resolution: "Fictional example: cable replaced; readings stable against simulator; returned to Emergency.",
+      },
+    },
+    {
+      asset: "VEN-0001",
+      status: "IN_PROGRESS",
+      priority: "HIGH",
+      reportedBy: "peter.kamau@coastal.example",
+      assignedTo: "amina.warsame@coastal.example",
+      fault: "Fictional example: intermittent 'low battery' alarm while on mains power.",
+      daysAgo: 1,
+      work: [{ description: "Checked mains inlet and charging circuit; battery capacity test started", minutes: 40 }],
+    },
+    {
+      asset: "DEF-0101",
+      status: "REQUESTED",
+      priority: "URGENT",
+      reportedBy: "lucy.achieng@coastal.example",
+      outOfUse: true,
+      fault:
+        "Fictional example: daily self-test failed with a service indicator; device removed from the resuscitation trolley.",
+      daysAgo: 0,
+    },
+  ],
+  "highland-medical": [
+    {
+      asset: "MON-0001",
+      status: "ASSIGNED",
+      priority: "MEDIUM",
+      reportedBy: "david.mutua@highland.example",
+      assignedTo: "sara.nakato@highland.example",
+      outOfUse: true,
+      fault: "Fictional example: screen stays blank after power-on.",
+      daysAgo: 2,
     },
   ],
 };

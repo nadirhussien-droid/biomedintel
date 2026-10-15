@@ -24,7 +24,7 @@ export const NAVIGATION: NavGroup[] = [
         label: "Equipment Assets",
         icon: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2M18 14h2v2M14 18h2v2M18 20h2",
       },
-      { href: "/work-orders", label: "Work Orders", stage: 5, icon: "M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h4" },
+      { href: "/work-orders", label: "Work Orders", icon: "M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h4" },
       {
         href: "/maintenance",
         label: "Preventive Maintenance",

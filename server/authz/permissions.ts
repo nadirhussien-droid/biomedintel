@@ -71,6 +71,25 @@ export const PERMISSIONS = {
   "asset.decommissionApprove": ["DEPARTMENT_HEAD", "ENGINEERING_MANAGER"],
   // Manufacturers, categories, models and locations (adding entries).
   "catalog.create": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN"],
+
+  // Work orders (Stage 5). Scope: the job's hospital and department.
+  // Fault Reporters see only the jobs they reported.
+  "workorder.view": [
+    "ORG_ADMIN",
+    "ENGINEERING_MANAGER",
+    "TECHNICIAN",
+    "INVENTORY_MANAGER",
+    "DEPARTMENT_HEAD",
+    "AUDITOR",
+    "FAULT_REPORTER",
+  ],
+  "workorder.report": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "DEPARTMENT_HEAD", "FAULT_REPORTER"],
+  "workorder.comment": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "DEPARTMENT_HEAD", "FAULT_REPORTER"],
+  // Triage: assign anyone in scope, change priority, cancel, reopen, review.
+  "workorder.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  // Take an unassigned job, and do the work on jobs assigned to oneself
+  // (start, hold, log work, sign off).
+  "workorder.work": ["ENGINEERING_MANAGER", "TECHNICIAN"],
 } as const satisfies Record<string, readonly MembershipRole[]>;
 
 export type Action = keyof typeof PERMISSIONS;

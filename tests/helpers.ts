@@ -110,3 +110,38 @@ export async function coastalAssetInput(overrides: Record<string, unknown> = {})
     ...overrides,
   };
 }
+
+/** Creates a fictional extra member (for tests that need, e.g., a second technician). */
+export async function addTestMember(
+  orgSlug: string,
+  role: "TECHNICIAN" | "ENGINEERING_MANAGER" | "DEPARTMENT_HEAD" | "FAULT_REPORTER" | "AUDITOR",
+  scopes: { hospital: string; department?: string }[],
+): Promise<string> {
+  const { randomUUID } = await import("node:crypto");
+  const org = await orgId(orgSlug);
+  const id = randomUUID();
+  const email = `test-${role.toLowerCase()}-${id.slice(0, 8)}@${orgSlug.split("-")[0]}.example`;
+  await owner.user.create({
+    data: { id, name: `Test ${role.toLowerCase()} ${id.slice(0, 4)}`, email, emailVerified: true },
+  });
+  const m = await owner.membership.create({ data: { organizationId: org, userId: id, role } });
+  for (const s of scopes) {
+    await owner.membershipScope.create({
+      data: {
+        organizationId: org,
+        membershipId: m.id,
+        hospitalId: await hospitalId(orgSlug, s.hospital),
+        departmentId: s.department ? await departmentId(orgSlug, s.hospital, s.department) : null,
+      },
+    });
+  }
+  return email;
+}
+
+/** The most recent work order on an asset. */
+export async function latestWorkOrder(orgSlug: string, tag: string) {
+  return owner.workOrder.findFirstOrThrow({
+    where: { assetId: await assetId(orgSlug, tag) },
+    orderBy: { createdAt: "desc" },
+  });
+}

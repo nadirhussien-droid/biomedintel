@@ -2,6 +2,7 @@
 
 import { useActionState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { useKeepValuesSubmit } from "@/components/forms/use-keep-values";
 import { InputField, SelectField } from "@/components/ui/field";
 import { EDITABLE_STATUSES, STATUS_LABELS } from "@/lib/validation/assets";
 import {
@@ -82,8 +83,9 @@ export function QuickStatusForm({
   locations: { id: string; name: string }[];
 }) {
   const [state, action, pending] = useActionState(changeStatusAction, null);
+  const { formRef, onSubmit } = useKeepValuesSubmit(action, state, { resetOnSuccess: false });
   return (
-    <form action={action} className="grid gap-3 md:grid-cols-[1fr_1fr_2fr_auto] md:items-end">
+    <form ref={formRef} onSubmit={onSubmit} className="grid gap-3 md:grid-cols-[1fr_1fr_2fr_auto] md:items-end">
       <input type="hidden" name="id" value={assetId} />
       {/* Keyed by the saved value so each list shows it again after a save. */}
       <SelectField
@@ -150,8 +152,9 @@ export function RestoreForm({ assetId }: { assetId: string }) {
 
 export function DecommissionRequestForm({ assetId }: { assetId: string }) {
   const [state, action, pending] = useActionState(requestDecommissionAction, null);
+  const { formRef, onSubmit } = useKeepValuesSubmit(action, state);
   return (
-    <form action={action} className="flex flex-col gap-3">
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-3">
       <input type="hidden" name="id" value={assetId} />
       <InputField
         label="Reason for decommissioning"
@@ -182,8 +185,9 @@ export function DecommissionRequestForm({ assetId }: { assetId: string }) {
 
 export function DecisionForm({ requestId }: { requestId: string }) {
   const [state, action, pending] = useActionState(decideDecommissionAction, null);
+  const { formRef, onSubmit } = useKeepValuesSubmit(action, state);
   return (
-    <form action={action} className="mt-3 grid gap-3 md:grid-cols-[2fr_auto_auto] md:items-end">
+    <form ref={formRef} onSubmit={onSubmit} className="mt-3 grid gap-3 md:grid-cols-[2fr_auto_auto] md:items-end">
       <input type="hidden" name="requestId" value={requestId} />
       <InputField
         label="Note (required to reject)"
@@ -218,8 +222,9 @@ export function CancelRequestForm({ requestId }: { requestId: string }) {
 
 export function WarrantyForm({ assetId }: { assetId: string }) {
   const [state, action, pending] = useActionState(addWarrantyAction, null);
+  const { formRef, onSubmit } = useKeepValuesSubmit(action, state);
   return (
-    <form action={action} className="bg-surface grid gap-3 rounded-md p-4 md:grid-cols-3">
+    <form ref={formRef} onSubmit={onSubmit} className="bg-surface grid gap-3 rounded-md p-4 md:grid-cols-3">
       <input type="hidden" name="assetId" value={assetId} />
       <SelectField label="Type" name="kind" id="w-kind" defaultValue="WARRANTY">
         <option value="WARRANTY">Manufacturer warranty</option>

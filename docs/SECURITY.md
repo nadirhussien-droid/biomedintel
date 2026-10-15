@@ -76,6 +76,38 @@ Labels carried QR codes in the first Stage 4 build. On 15 October 2026 they were
 
 The export uses the same scope and filters as the register screen, is capped at 5,000 rows, and is audited. Cells beginning with `= + - @` are prefixed with `'` so spreadsheet programs do not run them as formulas (CSV injection).
 
+## Work orders (Stage 5)
+
+- **Scope.** Every job records the hospital and department of its asset when it is reported.
+  - Every query is filtered by the user's hospitals/departments (`workOrderScopeWhere`). Fault Reporters are additionally limited to jobs they reported.
+  - RLS on all seven new tables (`work_orders`, `work_order_counters`, `work_order_events`, `work_order_tasks`, `attachments`, `downtime_events`, `notifications`) is the safety net.
+  - Unknown, other-tenant and out-of-scope jobs are "not found", audited as `workorder.access_denied`.
+- **Barcode-based reporting grants nothing.** A scanned asset ID is resolved by the Stage 4 look-up (current organisation and scope). `reportFault` then loads the asset again under the scope filter before creating a job. There is no separate barcode registry.
+- **Who may act** is decided on the server for each job: managers triage; only the **assigned technician** starts, holds, logs work and signs off. Assignees are checked against memberships and scope; the browser never chooses who is eligible.
+- **Sign-off by the technician who did the job** (decision of 15 Oct 2026). The database refuses a completed job unless:
+  - `completed_by` equals `assigned_to`;
+  - an outcome, a resolution, both checks and the declaration are recorded;
+  - for "repaired", the functional check passed and the electrical safety test passed or was not applicable.
+- **Accepted risk, with safeguards.** There is no independent check before a device returns to service. Safeguards:
+  - the declaration and recorded checks;
+  - immediate notification of the reporter;
+  - for safety-critical jobs, notification of managers and a **review list** (`workorder.reviewed` when reviewed);
+  - managers can **reopen** a job, which puts the device back under repair.
+  - Hospitals that need approval before return to service should ask for a blocking review step.
+- **Append-only records.** The timeline, the work log and photos cannot be updated or deleted, even by the owner role (trigger). Corrections are new entries. The app role has no DELETE on any work order table. It cannot UPDATE a job's organisation, number, asset, location, reporter or creation time (column grants).
+- **Photos.**
+  - Uploaded one at a time through a dedicated route. The 1 MB limit for all other forms is unchanged.
+  - The route accepts same-origin requests only, checks size before and after reading (5 MB), and requires the user to be the reporter, the assignee or a manager of a job in scope (at most 5 photos per job, row-locked).
+  - Each file is **decoded and re-encoded** with sharp: only real JPEG/PNG/WebP is accepted, whatever its name; at most 50 megapixels; resized to 2048 px. **EXIF metadata such as GPS location and camera details is removed.**
+  - Stored in PostgreSQL with a SHA-256 hash. Served only after the same scope check, with `nosniff` and `private, no-store`.
+  - The database allows only JPEG/PNG/WebP MIME types and up to 5 MB.
+- **Notifications.** Recipients are worked out on the server from memberships and scope. A database policy lets each person read and mark only their own; links must be in-app paths (CHECK constraint).
+- **Decommissioning** is refused while the asset has open jobs (Stage 2 rule).
+- **Audit events added:**
+  - `workorder.requested`, `workorder.assigned`, `workorder.priority_changed`, `workorder.started`, `workorder.on_hold`, `workorder.work_logged`, `workorder.note_added` (the note text stays in the timeline, not the audit log), `workorder.photo_added`.
+  - `workorder.completed` (outcome, checks, `signedOffBy: assigned_technician`), `workorder.reviewed`, `workorder.reopened`, `workorder.cancelled`, `workorder.access_denied`.
+  - `asset.returned_to_service`, plus `asset.status_changed` with the work order id.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.
@@ -118,7 +150,11 @@ The export uses the same scope and filters as the register screen, is capped at 
 12. **"Label printed" means the label page was opened.** The browser cannot confirm that anything was physically printed.
 13. **Duplicate asset IDs are revealed within an organisation.** To keep IDs unique, a user can learn that an ID already exists in their own organisation, even in a hospital they cannot see. No other details are revealed.
 14. **The approval rule depends on correct memberships.** If a NUM account is missing or wrongly scoped, the fallback approvers (Engineering Manager, Facility Manager) can decide. Keep Department Head scopes accurate.
-15. **No virus scanning, attachments or documents yet** (Stage 8).
+15. **No virus scanning of uploads.** Photos are decoded and re-encoded, which defeats files disguised as images, but there is no antivirus scan. Documents arrive in Stage 8.
+16. **Self-sign-off.** Technicians sign off their own repairs, including on safety-critical devices (decision of 15 Oct 2026). Manager review afterwards is optional and does not block return to service.
+17. **No scheduled escalation yet.** Overdue jobs are shown as Overdue on screens and the dashboard, but nobody is notified automatically when a target passes (this needs a background job runner).
+18. **Photos are stored in the database** (decision of 15 Oct 2026). Move them to encrypted object storage when hosting is chosen; database backups grow with photos.
+19. **Notifications are in-app only.** Nobody is alerted outside the app until an email or SMS provider is added.
 
 ## Backups and environments
 

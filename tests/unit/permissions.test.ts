@@ -26,9 +26,25 @@ describe("permission matrix", () => {
     expect(roleCan("AUDITOR", "audit.view")).toBe(true);
   });
 
-  it("fault reporters can only see the dashboard, their hospitals and the assets in their scope", () => {
+  it("fault reporters can see their scope, report faults and comment — nothing else", () => {
     const allowed = (Object.keys(PERMISSIONS) as Action[]).filter((a) => roleCan("FAULT_REPORTER", a));
-    expect(allowed.sort()).toEqual(["asset.view", "dashboard.view", "hospital.view"]);
+    expect(allowed.sort()).toEqual([
+      "asset.view",
+      "dashboard.view",
+      "hospital.view",
+      "workorder.comment",
+      "workorder.report",
+      "workorder.view",
+    ]);
+  });
+
+  it("only technicians and engineering managers do repair work; only managers and admins triage", () => {
+    expect([...PERMISSIONS["workorder.work"]].sort()).toEqual(["ENGINEERING_MANAGER", "TECHNICIAN"]);
+    expect([...PERMISSIONS["workorder.manage"]].sort()).toEqual(["ENGINEERING_MANAGER", "ORG_ADMIN"]);
+    for (const role of ["AUDITOR", "INVENTORY_MANAGER"] as const) {
+      expect(roleCan(role, "workorder.report")).toBe(false);
+      expect(roleCan(role, "workorder.work")).toBe(false);
+    }
   });
 
   it("denies unknown actions by default", () => {

@@ -1,0 +1,173 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { requireAccess } from "@/server/auth/session";
+import { NotFoundError } from "@/server/authz/errors";
+import { getWorkOrder } from "@/server/services/work-orders";
+import { code128 } from "@/server/barcode";
+import { BarcodeSvg } from "@/components/assets/barcode-svg";
+import { PrintButton } from "../../../assets/labels/print-button";
+import { CHECK_LABELS, OUTCOME_LABELS, PRIORITY_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
+
+export const metadata: Metadata = { title: "Job sheet" };
+
+const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+
+/** Printable A4 job sheet: the technician can scan the asset barcode at the device. */
+export default async function JobSheetPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const ctx = await requireAccess();
+  const wo = await getWorkOrder(ctx, id).catch((error) => {
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  });
+  const person = (uid: string | null) => (uid ? (wo.people[uid] ?? "Unknown user") : "—");
+  const row = "grid grid-cols-[38mm_1fr] gap-2 border-b border-[#9aa9b8] py-1.5 text-[10pt]";
+
+  return (
+    <>
+      <style>
+        {"@page { size: A4 portrait; margin: 14mm; } @media print { html, body { background: #fff !important; } }"}
+      </style>
+      <div className="mb-4 flex gap-2 print:hidden">
+        <PrintButton />
+      </div>
+      <article className="mx-auto w-full max-w-[182mm] bg-white p-[6mm] text-black print:p-0">
+        <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- static SVG, prints reliably */}
+              <img src="/brand/mark-dark.svg" alt="" className="h-6 w-6" />
+              <span className="text-[13pt] font-bold">BiomedIntel.ai</span>
+            </div>
+            <div className="mt-1 text-[9pt]">Work order job sheet · {ctx.organization.name}</div>
+          </div>
+          <div className="w-[60mm] text-center">
+            <BarcodeSvg
+              barcode={code128(wo.number)}
+              label={`Code 128 barcode for ${wo.number}`}
+              className="h-[12mm] w-full"
+            />
+            <div className="font-mono text-[11pt] font-bold">{wo.number}</div>
+          </div>
+        </header>
+
+        <section className="mt-4 grid grid-cols-[1fr_62mm] gap-4">
+          <div>
+            <div className={row}>
+              <span className="font-semibold">Device</span>
+              <span>
+                {wo.asset.name} · {wo.asset.model.manufacturer.name} {wo.asset.model.modelName}
+              </span>
+            </div>
+            <div className={row}>
+              <span className="font-semibold">Serial number</span>
+              <span>{wo.asset.serialNumber ?? "—"}</span>
+            </div>
+            <div className={row}>
+              <span className="font-semibold">Location</span>
+              <span>
+                {wo.hospital.name} · {wo.department.name}
+                {wo.asset.location ? ` · ${wo.asset.location.name}` : ""}
+              </span>
+            </div>
+            <div className={row}>
+              <span className="font-semibold">Status / priority</span>
+              <span>
+                {WO_STATUS_LABELS[wo.status]} · {PRIORITY_LABELS[wo.priority]}
+                {wo.safetyCritical ? " · SAFETY-CRITICAL" : ""}
+              </span>
+            </div>
+            <div className={row}>
+              <span className="font-semibold">Reported</span>
+              <span>
+                {dateTime.format(wo.createdAt)} UTC by {person(wo.reportedById)}
+                {wo.outOfUse ? " · device taken out of use" : ""}
+              </span>
+            </div>
+            <div className={row}>
+              <span className="font-semibold">Assigned to</span>
+              <span>{person(wo.assignedToId)}</span>
+            </div>
+          </div>
+          <div className="border border-black p-2 text-center">
+            <div className="text-[8pt] font-semibold">ASSET ID</div>
+            <BarcodeSvg
+              barcode={code128(wo.asset.assetTag)}
+              label={`Code 128 barcode for asset ${wo.asset.assetTag}`}
+              className="h-[14mm] w-full"
+            />
+            <div className="font-mono text-[14pt] font-bold tracking-wider">{wo.asset.assetTag}</div>
+          </div>
+        </section>
+
+        <section className="mt-4">
+          <h2 className="text-[11pt] font-bold">Fault reported</h2>
+          <p className="mt-1 border border-[#9aa9b8] p-2 text-[10pt] whitespace-pre-line">{wo.faultDescription}</p>
+        </section>
+
+        <section className="mt-4">
+          <h2 className="text-[11pt] font-bold">Work log</h2>
+          {wo.tasks.length ? (
+            <table className="mt-1 w-full border-collapse text-[9.5pt]">
+              <tbody>
+                {wo.tasks.map((t) => (
+                  <tr key={t.id} className="border-b border-[#9aa9b8]">
+                    <td className="py-1 pr-2">{t.description}</td>
+                    <td className="py-1 pr-2 whitespace-nowrap">{t.minutes} min</td>
+                    <td className="py-1 whitespace-nowrap">{person(t.performedById)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="mt-1 h-[30mm] border border-[#9aa9b8]" aria-label="Space for handwritten notes" />
+          )}
+        </section>
+
+        <section className="mt-4">
+          <h2 className="text-[11pt] font-bold">Sign-off</h2>
+          {wo.status === "COMPLETED" ? (
+            <div className="mt-1 text-[10pt]">
+              <div className={row}>
+                <span className="font-semibold">Diagnosis</span>
+                <span className="whitespace-pre-line">{wo.diagnosis}</span>
+              </div>
+              <div className={row}>
+                <span className="font-semibold">Work done</span>
+                <span className="whitespace-pre-line">{wo.resolution}</span>
+              </div>
+              <div className={row}>
+                <span className="font-semibold">Outcome</span>
+                <span>{wo.outcome ? OUTCOME_LABELS[wo.outcome] : "—"}</span>
+              </div>
+              <div className={row}>
+                <span className="font-semibold">Checks</span>
+                <span>
+                  Functional: {wo.functionalCheck ? CHECK_LABELS[wo.functionalCheck] : "—"} · Electrical safety:{" "}
+                  {wo.electricalSafetyCheck ? CHECK_LABELS[wo.electricalSafetyCheck] : "—"}
+                </span>
+              </div>
+              <div className={row}>
+                <span className="font-semibold">Signed off</span>
+                <span>
+                  {person(wo.completedById)} · {wo.completedAt ? `${dateTime.format(wo.completedAt)} UTC` : ""} ·
+                  declaration confirmed in BiomedIntel.ai
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 grid grid-cols-2 gap-6 text-[10pt]">
+              <div className="border-b border-black pt-8">Technician signature</div>
+              <div className="border-b border-black pt-8">Date</div>
+            </div>
+          )}
+        </section>
+
+        <footer className="mt-6 border-t border-[#9aa9b8] pt-2 text-[8pt]">
+          Printed {dateTime.format(new Date())} UTC from BiomedIntel.ai. Equipment record only — contains no patient
+          information. The record in BiomedIntel.ai is the authoritative version.
+        </footer>
+      </article>
+    </>
+  );
+}

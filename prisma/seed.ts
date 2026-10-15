@@ -10,7 +10,14 @@ import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { PrismaClient } from "../server/db/generated/client";
 import { adminClient, assertLocalDevelopmentDatabase } from "../scripts/lib/admin-db";
-import { DEMO_NOTE, SEED_ASSETS, SEED_CATALOG, SEED_LOCATIONS, SEED_ORGANIZATIONS } from "./seed-data";
+import {
+  DEMO_NOTE,
+  SEED_ASSETS,
+  SEED_CATALOG,
+  SEED_LOCATIONS,
+  SEED_ORGANIZATIONS,
+  SEED_WORK_ORDERS,
+} from "./seed-data";
 
 export async function seed(db: PrismaClient, password: string, { quiet = false } = {}) {
   const log = (msg: string) => !quiet && console.log(msg);
@@ -90,7 +97,13 @@ async function seedEquipment(
   const categories = new Map<string, string>();
   for (const c of SEED_CATALOG.categories) {
     const row = await db.equipmentCategory.create({
-      data: { organizationId, name: c.name, defaultRiskClass: c.risk, defaultPmIntervalMonths: c.pmMonths },
+      data: {
+        organizationId,
+        name: c.name,
+        defaultRiskClass: c.risk,
+        defaultPmIntervalMonths: c.pmMonths,
+        safetyCritical: Boolean(c.safetyCritical),
+      },
     });
     categories.set(c.name, row.id);
   }
@@ -173,7 +186,124 @@ async function seedEquipment(
       },
     });
   }
+  await seedWorkOrders(db, organizationId, slug, assetIds, users);
   return assetIds.size;
+}
+
+const HOURS: Record<string, number> = { URGENT: 4, HIGH: 24, MEDIUM: 72, LOW: 168 };
+
+/** Fictional work orders in several states, consistent with the database rules. */
+async function seedWorkOrders(
+  db: PrismaClient,
+  organizationId: string,
+  slug: string,
+  assetIds: Map<string, string>,
+  users: Map<string, string>,
+) {
+  const items = SEED_WORK_ORDERS[slug] ?? [];
+  const year = new Date().getUTCFullYear();
+  let n = 0;
+  for (const w of items) {
+    n++;
+    const assetId = assetIds.get(w.asset)!;
+    const asset = await db.asset.findUniqueOrThrow({
+      where: { id: assetId },
+      select: {
+        hospitalId: true,
+        departmentId: true,
+        status: true,
+        riskClass: true,
+        model: { select: { category: true } },
+      },
+    });
+    const reporter = users.get(w.reportedBy)!;
+    const assignee = w.assignedTo ? users.get(w.assignedTo)! : null;
+    const created = new Date(Date.now() - w.daysAgo * 86400_000 - 3600_000);
+    const at = (h: number) => new Date(created.getTime() + h * 3600_000);
+    const completed = w.status === "COMPLETED";
+    const wo = await db.workOrder.create({
+      data: {
+        organizationId,
+        number: `WO-${year}-${String(n).padStart(5, "0")}`,
+        assetId,
+        hospitalId: asset.hospitalId,
+        departmentId: asset.departmentId,
+        priority: w.priority,
+        status: w.status,
+        safetyCritical: asset.model.category.safetyCritical || asset.riskClass === "HIGH",
+        outOfUse: Boolean(w.outOfUse),
+        faultDescription: w.fault,
+        reportedById: reporter,
+        assignedToId: assignee,
+        assignedById: assignee ? reporter : null,
+        assignedAt: assignee ? at(1) : null,
+        dueAt: new Date(created.getTime() + HOURS[w.priority] * 3600_000),
+        startedAt: w.status === "IN_PROGRESS" || completed ? at(2) : null,
+        diagnosis: w.completion?.diagnosis ?? null,
+        resolution: w.completion?.resolution ?? null,
+        outcome: completed ? "REPAIRED" : null,
+        functionalCheck: completed ? "PASS" : null,
+        electricalSafetyCheck: completed ? "PASS" : null,
+        signOffDeclaration: completed,
+        completedById: completed ? assignee : null,
+        completedAt: completed ? at(4) : null,
+        createdAt: created,
+      },
+    });
+    const events: {
+      kind: string;
+      actorId: string;
+      createdAt: Date;
+      toStatus?: "REQUESTED" | "ASSIGNED" | "IN_PROGRESS" | "COMPLETED";
+    }[] = [{ kind: "CREATED", actorId: reporter, createdAt: created, toStatus: "REQUESTED" }];
+    if (assignee) events.push({ kind: "ASSIGNED", actorId: reporter, createdAt: at(1), toStatus: "ASSIGNED" });
+    if (w.status === "IN_PROGRESS" || completed)
+      events.push({ kind: "STARTED", actorId: assignee!, createdAt: at(2), toStatus: "IN_PROGRESS" });
+    for (const [i, task] of (w.work ?? []).entries()) {
+      await db.workOrderTask.create({
+        data: {
+          organizationId,
+          workOrderId: wo.id,
+          description: task.description,
+          minutes: task.minutes,
+          performedById: assignee!,
+          createdAt: at(2.5 + i * 0.5),
+        },
+      });
+      events.push({ kind: "WORK_LOGGED", actorId: assignee!, createdAt: at(2.5 + i * 0.5) });
+    }
+    if (completed) events.push({ kind: "COMPLETED", actorId: assignee!, createdAt: at(4), toStatus: "COMPLETED" });
+    await db.workOrderEvent.createMany({
+      data: events.map((e) => ({ organizationId, workOrderId: wo.id, ...e })),
+    });
+    if (w.outOfUse) {
+      if (asset.status === "IN_SERVICE") {
+        await db.asset.update({ where: { id: assetId }, data: { status: "OUT_OF_SERVICE" } });
+        await db.assetStatusHistory.create({
+          data: {
+            organizationId,
+            assetId,
+            fromStatus: "IN_SERVICE",
+            toStatus: "OUT_OF_SERVICE",
+            reason: `Taken out of use: fault reported (${wo.number})`,
+            changedById: reporter,
+            workOrderId: wo.id,
+            createdAt: created,
+          },
+        });
+      }
+      await db.downtimeEvent.create({
+        data: {
+          organizationId,
+          assetId,
+          workOrderId: wo.id,
+          reason: `Fault reported (${wo.number})`,
+          startedAt: created,
+        },
+      });
+    }
+  }
+  if (n) await db.workOrderCounter.create({ data: { organizationId, year, lastNumber: n } });
 }
 
 async function main() {

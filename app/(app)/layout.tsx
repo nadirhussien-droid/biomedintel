@@ -8,6 +8,8 @@ import { withTenant } from "@/server/db/tenant";
 import { Sidebar } from "@/components/shell/sidebar";
 import { ContextSelectors } from "@/components/shell/context-selectors";
 import { UserMenu } from "@/components/shell/user-menu";
+import { NotificationBell } from "@/components/shell/notification-bell";
+import { countMyUnread } from "@/server/services/notifications";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAccess();
@@ -47,12 +49,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               }
             />
           </div>
-          <UserMenu
-            name={ctx.user.name}
-            email={ctx.user.email}
-            roleLabel={ROLE_LABELS[ctx.role]}
-            mfaEnabled={ctx.user.twoFactorEnabled}
-          />
+          <div className="flex items-center gap-3">
+            <NotificationBell unread={await countMyUnread(ctx)} />
+            <UserMenu
+              name={ctx.user.name}
+              email={ctx.user.email}
+              roleLabel={ROLE_LABELS[ctx.role]}
+              mfaEnabled={ctx.user.twoFactorEnabled}
+            />
+          </div>
         </header>
         <main className="flex flex-1 flex-col gap-6 p-6 print:p-0">{children}</main>
         <footer className="border-line text-ink-muted border-t px-6 py-3 text-xs print:hidden">

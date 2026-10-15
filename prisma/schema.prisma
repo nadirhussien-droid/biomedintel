@@ -107,6 +107,57 @@ enum LifecycleEventStatus {
   @@map("lifecycle_event_status")
 }
 
+// ─── Work orders (Stage 5) ───────────────────────────────────────────────────
+
+/// Stage 2 work order types. Stage 5 creates CORRECTIVE jobs (fault reports);
+/// the others arrive with preventive maintenance and testing (Stage 6).
+enum WorkOrderType {
+  CORRECTIVE
+  PREVENTIVE
+  SAFETY_TEST
+  CALIBRATION
+  INSPECTION
+  ACCEPTANCE
+
+  @@map("work_order_type")
+}
+
+enum WorkOrderPriority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("work_order_priority")
+}
+
+enum WorkOrderStatus {
+  REQUESTED // reported, waiting for a technician
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD // e.g. waiting for parts or the supplier
+  COMPLETED // signed off by the technician who did the job
+  CANCELLED
+
+  @@map("work_order_status")
+}
+
+enum WorkOrderOutcome {
+  REPAIRED
+  NO_FAULT_FOUND
+  NOT_REPAIRABLE
+
+  @@map("work_order_outcome")
+}
+
+enum CheckResult {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+
+  @@map("check_result")
+}
+
 enum AuditOutcome {
   SUCCESS
   DENIED
@@ -140,6 +191,13 @@ model Organization {
   assetStatusHistory  AssetStatusHistory[]
   warranties          Warranty[]
   lifecycleEvents     LifecycleEvent[]
+  workOrders          WorkOrder[]
+  workOrderEvents     WorkOrderEvent[]
+  workOrderTasks      WorkOrderTask[]
+  attachments         Attachment[]
+  downtimeEvents      DowntimeEvent[]
+  notifications       Notification[]
+  workOrderCounters   WorkOrderCounter[]
 
   @@map("organizations")
 }
@@ -161,6 +219,7 @@ model Hospital {
   scopes       MembershipScope[]
   locations    Location[]
   assets       Asset[]
+  workOrders   WorkOrder[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id]) // target for composite foreign keys
@@ -186,6 +245,7 @@ model Department {
   scopes       MembershipScope[]
   locations    Location[]
   assets       Asset[]
+  workOrders   WorkOrder[]
 
   @@unique([organizationId, hospitalId, code])
   @@unique([organizationId, id])
@@ -253,6 +313,9 @@ model EquipmentCategory {
   parentId                String?      @map("parent_id") @db.Uuid
   defaultRiskClass        RiskClass?   @map("default_risk_class")
   defaultPmIntervalMonths Int?         @map("default_pm_interval_months")
+  /// Decision 9 (15 Oct 2026): jobs on safety-critical device types are
+  /// flagged, given at least High priority and escalated immediately.
+  safetyCritical          Boolean      @default(false) @map("safety_critical")
   status                  RecordStatus @default(ACTIVE)
   archivedAt              DateTime?    @map("archived_at") @db.Timestamptz(6)
   createdById             String?      @map("created_by")
@@ -333,6 +396,8 @@ model Asset {
   statusHistory   AssetStatusHistory[]
   warranties      Warranty[]
   lifecycleEvents LifecycleEvent[]
+  workOrders      WorkOrder[]
+  downtimeEvents  DowntimeEvent[]
 
   @@unique([organizationId, assetTag])
   @@unique([organizationId, hospitalId, inventoryNumber])
@@ -352,10 +417,13 @@ model AssetStatusHistory {
   toStatus       AssetStatus  @map("to_status")
   reason         String?
   changedById    String?      @map("changed_by")
+  /// The work order that caused this change, if any (Stage 5).
+  workOrderId    String?      @map("work_order_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?   @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
 
   @@index([organizationId, assetId, createdAt])
   @@map("asset_status_history")
@@ -408,6 +476,187 @@ model LifecycleEvent {
   @@index([organizationId, assetId, eventType])
   @@index([organizationId, status])
   @@map("lifecycle_events")
+}
+
+/// A job on one asset. Number like WO-2026-00001, unique per organisation.
+/// Hospital and department are recorded when the job is reported, so later
+/// asset moves do not change who may see an existing job.
+model WorkOrder {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId        String            @map("organization_id") @db.Uuid
+  number                String
+  assetId               String            @map("asset_id") @db.Uuid
+  hospitalId            String            @map("hospital_id") @db.Uuid
+  departmentId          String            @map("department_id") @db.Uuid
+  type                  WorkOrderType     @default(CORRECTIVE)
+  priority              WorkOrderPriority
+  status                WorkOrderStatus   @default(REQUESTED)
+  /// Snapshot at report time: safety-critical category or High-risk asset.
+  safetyCritical        Boolean           @default(false) @map("safety_critical")
+  /// The reporter took the device out of use.
+  outOfUse              Boolean           @default(false) @map("out_of_use")
+  faultDescription      String            @map("fault_description")
+  reportedById          String            @map("reported_by")
+  assignedToId          String?           @map("assigned_to")
+  assignedById          String?           @map("assigned_by")
+  assignedAt            DateTime?         @map("assigned_at") @db.Timestamptz(6)
+  dueAt                 DateTime?         @map("due_at") @db.Timestamptz(6)
+  startedAt             DateTime?         @map("started_at") @db.Timestamptz(6)
+  holdReason            String?           @map("hold_reason")
+  diagnosis             String?
+  resolution            String?
+  outcome               WorkOrderOutcome?
+  functionalCheck       CheckResult?      @map("functional_check")
+  electricalSafetyCheck CheckResult?      @map("electrical_safety_check")
+  checkNotes            String?           @map("check_notes")
+  /// The technician's declaration that the checks and results are their own.
+  signOffDeclaration    Boolean           @default(false) @map("sign_off_declaration")
+  completedById         String?           @map("completed_by")
+  completedAt           DateTime?         @map("completed_at") @db.Timestamptz(6)
+  /// Optional manager review after a technician's sign-off (never blocking).
+  reviewedById          String?           @map("reviewed_by")
+  reviewedAt            DateTime?         @map("reviewed_at") @db.Timestamptz(6)
+  cancelledById         String?           @map("cancelled_by")
+  cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason          String?           @map("cancel_reason")
+  reopenCount           Int               @default(0) @map("reopen_count")
+  updatedById           String?           @map("updated_by")
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset         Asset                @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  hospital      Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department    Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  events        WorkOrderEvent[]
+  tasks         WorkOrderTask[]
+  attachments   Attachment[]
+  downtime      DowntimeEvent[]
+  statusChanges AssetStatusHistory[]
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, id])
+  @@index([organizationId, status, priority])
+  @@index([organizationId, assignedToId, status])
+  @@index([organizationId, assetId, status])
+  @@index([organizationId, hospitalId, departmentId, status])
+  @@map("work_orders")
+}
+
+/// Next work order number per organisation and year (WO-2026-00001 …).
+model WorkOrderCounter {
+  organizationId String @map("organization_id") @db.Uuid
+  year           Int
+  lastNumber     Int    @default(0) @map("last_number")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, year])
+  @@map("work_order_counters")
+}
+
+/// Timeline of a work order. Append-only.
+model WorkOrderEvent {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  workOrderId    String           @map("work_order_id") @db.Uuid
+  kind           String // CREATED, ASSIGNED, STARTED, ON_HOLD, NOTE, COMPLETED, REOPENED, …
+  fromStatus     WorkOrderStatus? @map("from_status")
+  toStatus       WorkOrderStatus? @map("to_status")
+  note           String?
+  actorId        String           @map("actor_id")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, workOrderId, createdAt])
+  @@map("work_order_events")
+}
+
+/// Work done on a job (Stage 2 work_order_tasks): what was done and how long.
+/// Append-only: corrections are new entries.
+model WorkOrderTask {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  workOrderId    String   @map("work_order_id") @db.Uuid
+  description    String
+  minutes        Int
+  performedById  String   @map("performed_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, workOrderId, createdAt])
+  @@map("work_order_tasks")
+}
+
+/// A photo on a work order. Stored in the database for now (decision of
+/// 15 Oct 2026); re-encoded on upload so camera and location metadata are removed.
+model Attachment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  entityType     String   @default("work_order") @map("entity_type")
+  workOrderId    String   @map("work_order_id") @db.Uuid
+  filename       String
+  mime           String
+  sizeBytes      Int      @map("size_bytes")
+  sha256         String
+  width          Int
+  height         Int
+  content        Bytes
+  uploadedById   String   @map("uploaded_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, workOrderId])
+  @@map("attachments")
+}
+
+/// When a device was unavailable, for uptime reporting.
+model DowntimeEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  assetId        String    @map("asset_id") @db.Uuid
+  workOrderId    String?   @map("work_order_id") @db.Uuid
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt        DateTime? @map("ended_at") @db.Timestamptz(6)
+  reason         String
+  planned        Boolean   @default(false)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?   @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, assetId, startedAt])
+  @@map("downtime_events")
+}
+
+/// In-app notification for one person in one organisation.
+model Notification {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id")
+  type           String // e.g. workorder.reported, workorder.assigned
+  entityType     String?   @map("entity_type")
+  entityId       String?   @map("entity_id")
+  title          String
+  body           String?
+  /// In-app path only, e.g. /work-orders/<id>
+  link           String?
+  readAt         DateTime? @map("read_at") @db.Timestamptz(6)
+  emailedAt      DateTime? @map("emailed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, userId, readAt])
+  @@map("notifications")
 }
 
 // ─── People and access ───────────────────────────────────────────────────────

@@ -9,7 +9,9 @@ This repository contains:
 - **Stage 3 foundation:** project setup, database, secure sign-in, roles and permissions, multi-hospital tenant isolation, audit logging and the branded application shell.
 - **Stage 4 equipment register:** asset register with search, filters and paging; asset details; create/edit/archive; decommissioning with NUM approval; equipment catalog; Code 128 barcode labels, barcode scanning (handheld scanner, phone camera or typing) and printable labels; CSV export.
 
-Work orders, maintenance, inventory, IntellKnowledge, IntellAssist and reports arrive in later stages.
+- **Stage 5 work orders:** fault reports from a scanned barcode (handheld scanner, camera or typing), with photos; assignment; the technician workflow; sign-off by the technician who did the job; downtime; a manager review list; in-app notifications; printable job sheets.
+
+Preventive maintenance, testing, inventory, IntellKnowledge, IntellAssist and reports arrive in later stages.
 
 > **Not production-ready.** It runs locally and its security foundations are tested, but it has not been security-reviewed, has no email provider, and has never been deployed. See [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -92,13 +94,13 @@ npm run dev
 
 Open <http://localhost:3000>. Sign in with any seed user below and the `SEED_USER_PASSWORD` from your `.env`.
 
-## Updating an existing Stage 3 copy to Stage 4
+## Updating an existing copy
 
 If you already ran Stage 3 on your computer:
 
 ```bash
-npm install              # adds the barcode libraries (bwip-js, @zxing/browser)
-npm run db:deploy        # adds the equipment tables (4 new migrations; existing data is kept)
+npm install              # adds the barcode libraries (bwip-js, @zxing/browser) and sharp (photo processing)
+npm run db:deploy        # applies new migrations (Stage 4: 4, Stage 5: 2); existing data is kept
 npm run db:test:prepare  # same for the test database
 ```
 
@@ -183,6 +185,58 @@ Recommendations:
 4. Keep the white margins at both ends of the barcode clear, and stick labels on a flat, visible surface, not over a seam or curved edge. Place the barcode horizontally where a scanner can reach it.
 5. Labels show only the asset name, asset ID and, optionally, hospital and department. Serial numbers, costs and other internal details are never printed. Use **Hide hospital and department** for equipment in public areas if you prefer.
 
+## Work orders (Stage 5)
+
+Open **Work Orders** in the sidebar, or use **Report a fault** on an asset page.
+
+**How a job flows:** Reported → Assigned → In progress (⇄ On hold) → Completed by the technician, or Cancelled.
+
+| Task                                       | Who                                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Report a fault (scan, type or search)      | Fault Reporter, Department Head, Technician, Engineering Manager, Org Admin              |
+| See jobs                                   | Everyone in their hospitals/departments; **Fault Reporters see only their own reports**  |
+| Assign or reassign, change priority        | Engineering Manager, Org Admin                                                           |
+| Take an unassigned job                     | Technician, Engineering Manager                                                          |
+| Start, put on hold, log work, **sign off** | **Only the technician assigned to the job**                                              |
+| Review a self-signed safety-critical job   | Engineering Manager, Org Admin (never blocks the job)                                    |
+| Reopen a completed job                     | Engineering Manager, Org Admin                                                           |
+| Cancel                                     | Engineering Manager, Org Admin; a reporter can cancel their own report before assignment |
+| Add notes                                  | Anyone who can report                                                                    |
+
+**Reporting a fault:**
+
+- Scan the device's barcode with a handheld scanner straight into the box on **Report a fault**. Alternatively use **Scan barcode to report** (camera), or type the asset ID.
+- Describe the problem, without patient information, and tick **I have taken this device out of use** if it is no longer in use. The device then becomes Out of service and downtime starts.
+- Add up to 5 photos (JPEG/PNG/WebP, 5 MB each). Location and camera details are removed automatically.
+- If the device already has an open job, you are asked to confirm before a second job is created.
+
+**Safety-critical devices** are defibrillators, ventilators, anaesthesia machines, infusion pumps, electrosurgical units, and any asset rated High risk.
+
+- Their jobs are at least **High** priority (**Urgent** if the device was taken out of use).
+- Managers and org admins are notified immediately.
+- After sign-off they appear in **Safety-critical to review** for a manager.
+- The list of device types is a flag on each equipment category.
+
+**Response targets** (from the time of reporting): Urgent 4 h, High 24 h, Medium 3 days, Low 7 days. Jobs past their target show **Overdue**.
+
+**Sign-off.** The technician who did the job signs it off: decision of 15 Oct 2026.
+
+- They record the diagnosis, the work done, the outcome, the functional check and the electrical safety test (or why it is not applicable), and confirm a declaration.
+- A device cannot be signed off as repaired with a failed check (the database enforces this too).
+- "Repaired" and "No fault found" return the device to service and end downtime, unless another open job still has it out of use.
+- "Not repairable" keeps it out of service; request decommissioning from the asset page. **Open jobs block decommissioning.**
+
+**Job sheet:** **Print job sheet** gives an A4 sheet with the work order number and the asset ID as Code 128 barcodes, so the technician can scan the device on site.
+
+**Notifications** appear under the bell in the header: new faults, safety-critical faults, assignments, notes, completions, reopened and cancelled jobs, and decommissioning requests. They are in-app only for now; email needs an email provider.
+
+The seed adds four fictional jobs:
+
+- WO-…-00001: a completed repair on MON-0002.
+- WO-…-00002: a job in progress on VEN-0001.
+- WO-…-00003: a new safety-critical report on DEF-0101, taken out of use.
+- One assigned job in Highland.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
@@ -263,6 +317,8 @@ app/                    Pages (Next.js App Router)
   (account)/            Account security (MFA setup), no-access, platform admin
   (app)/                The signed-in app: dashboard, admin, settings, module placeholders
     assets/             Equipment register, asset pages, catalog, labels, scanner, CSV export
+    work-orders/        Work order list, fault report, job page, job sheet, photo upload/view routes
+    notifications/      In-app notifications
   api/auth/[...all]/    Better Auth endpoints
 components/             UI building blocks (ui/) and the app shell (shell/)
 lib/                    Shared client-safe code: validation schemas, navigation, auth client
@@ -271,7 +327,7 @@ server/                 Server-only code — never sent to the browser
   authz/                Roles, permission table, access resolution, errors
   audit/                Audit logging
   db/                   Prisma client, withTenant() transactions, generated client
-  services/             Business rules (organisation admin, platform, dashboard, assets, equipment catalog)
+  services/             Business rules (organisation admin, platform, dashboard, assets, catalog, work orders, notifications)
   barcode.ts            Code 128 barcode generation for labels
   actions/              Shared result handling for server actions
 prisma/                 schema.prisma, migrations, seed
@@ -300,5 +356,8 @@ instrumentation.ts      Start-up checks (config, database role)
 | "Start camera" says camera scanning needs a secure connection    | Browsers allow cameras only on https:// or on localhost. Type the asset ID, or use an https address.                  |
 | The camera starts but nothing happens                            | Hold the barcode flat and horizontal, 10–20 cm away in good light, filling most of the frame. Reprint damaged labels. |
 | A scan says "No asset found that you can open"                   | Not your hospital/department, a label from before an asset ID change, or another organisation's equipment.            |
+| "There is already an open job for this device"                   | Add a note to the existing job, or tick the box to report a separate fault.                                           |
+| A photo upload says it is not a readable photo                   | Use JPEG, PNG or WebP up to 5 MB. HEIC photos from iPhones: set Camera → Formats → Most Compatible.                   |
+| A device stays Out of service after sign-off                     | Another open job took it out of use; complete or cancel that job too.                                                 |
 | A handheld scanner types but nothing happens                     | Set the scanner to send Enter after each scan, and to read Code 128.                                                  |
 | Printed barcodes are too small or cut off                        | Print at 100% / Actual size, not "Fit to page"; check the label format matches your label stock.                      |

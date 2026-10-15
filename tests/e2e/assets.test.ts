@@ -13,6 +13,14 @@ afterAll(async () => {
 });
 
 describe.skipIf(!BASE)("asset pages, signed out", () => {
+  it("a work order link also returns to that job after sign-in", async () => {
+    const job = await owner.workOrder.findFirstOrThrow({ where: { organization: { slug: "coastal-health" } } });
+    const res = await fetch(`${BASE}/work-orders/${job.id}`, { redirect: "manual" });
+    const location = new URL(res.headers.get("location")!, BASE);
+    expect(location.pathname).toBe("/sign-in");
+    expect(location.searchParams.get("next")).toBe(`/work-orders/${job.id}`);
+  });
+
   it("send a visitor to sign-in, remembering only the asset page address and showing nothing about it", async () => {
     const pump = await assetRow("coastal-health", "INF-0101");
     const res = await fetch(`${BASE}/assets/${pump.id}`, { redirect: "manual" });
@@ -111,6 +119,60 @@ describe.skipIf(!BASE || !PASSWORD)("equipment pages, signed in as a technician"
     expect(page).toContain("@page");
     expect(page).not.toContain(mine.serialNumber!);
     expect(page).not.toContain("VEN-0001");
+  });
+
+  // ─── Work orders (Stage 5) ─────────────────────────────────────────────────
+
+  it("the work order list and a job in scope open; the job sheet carries the asset barcode", async () => {
+    const job = await owner.workOrder.findFirstOrThrow({
+      where: { organization: { slug: "coastal-health" }, asset: { assetTag: "VEN-0001" } },
+    });
+    const list = await (await get(`/work-orders?view=all`)).text();
+    expect(list).toContain(job.number);
+    const page = await (await get(`/work-orders/${job.id}`)).text();
+    expect(page).toContain(job.number);
+    expect(page).toContain("VEN-0001");
+    const sheet = await (await get(`/work-orders/${job.id}/print`)).text();
+    expect(sheet).toContain("Code 128 barcode for asset VEN-0001");
+    expect(sheet).toContain(`Code 128 barcode for ${job.number}`);
+  });
+
+  it("another organisation's job, and an out-of-scope job, are 'not found'", async () => {
+    const theirs = await owner.workOrder.findFirstOrThrow({ where: { organization: { slug: "highland-medical" } } });
+    const outOfScope = await owner.workOrder.findFirstOrThrow({
+      where: { organization: { slug: "coastal-health" }, asset: { assetTag: "DEF-0101" } },
+    });
+    for (const id of [theirs.id, outOfScope.id]) {
+      const res = await get(`/work-orders/${id}`);
+      expect(res.status).toBe(404);
+      const page = await res.text();
+      expect(page).toContain("Work order not found");
+      expect(page).not.toContain(theirs.number);
+    }
+    expect((await get(`/work-orders/${theirs.id}/photos/${theirs.id}`)).status).toBe(404);
+  });
+
+  it("photo uploads are refused from other sites, without a file, or when too large", async () => {
+    const job = await owner.workOrder.findFirstOrThrow({
+      where: { organization: { slug: "coastal-health" }, asset: { assetTag: "VEN-0001" } },
+    });
+    const post = (headers: Record<string, string>, body?: BodyInit) =>
+      fetch(`${BASE}/work-orders/${job.id}/photos`, { method: "POST", headers: { cookie, ...headers }, body });
+    expect((await post({ origin: "https://evil.example" }, new FormData())).status).toBe(403);
+    expect((await post({}, new FormData())).status).toBe(403); // no Origin header
+    const tooBig = new FormData();
+    tooBig.append("photo", new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "image/jpeg" }), "big.jpg");
+    expect((await post({ origin: BASE! }, tooBig)).status).toBe(413);
+    const notImage = new FormData();
+    notImage.append("photo", new Blob(["<script>alert(1)</script>"], { type: "image/jpeg" }), "x.jpg");
+    const res = await post({ origin: BASE! }, notImage);
+    expect(res.status).toBe(422);
+  });
+
+  it("the notifications page opens and the header shows the bell", async () => {
+    const page = await (await get(`/notifications`)).text();
+    expect(page).toContain("Notifications");
+    expect(page).toMatch(/aria-label="Notifications/);
   });
 
   it("CSV export is refused for a technician (no export permission)", async () => {
