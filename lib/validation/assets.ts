@@ -2,6 +2,7 @@
 // These schemas run on the SERVER for every create/edit; the browser is never
 // trusted. No field asks for patient information.
 import { z } from "zod";
+import { warrantyDetailFields } from "./inventory";
 
 export const ASSET_STATUSES = ["IN_SERVICE", "UNDER_REPAIR", "OUT_OF_SERVICE", "DECOMMISSIONED"] as const;
 export type AssetStatusValue = (typeof ASSET_STATUSES)[number];
@@ -210,11 +211,13 @@ export const warrantySchema = z
       .string()
       .trim()
       .min(2, "Provider must be at least 2 characters")
-      .max(120)
+      .max(160)
       .regex(NO_CONTROL, "Provider contains invalid characters"),
     startsOn: optionalDate("Start date", false),
     endsOn: requiredDate("End date"),
     coverage: optionalText(500, "Coverage"),
+    // Stage 8 details (all optional; blank coverage answers mean "not recorded").
+    ...warrantyDetailFields,
   })
   .superRefine((d, ctx) => {
     if (d.startsOn && d.endsOn < d.startsOn) {

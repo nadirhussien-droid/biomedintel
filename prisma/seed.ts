@@ -19,6 +19,7 @@ import {
   SEED_WORK_ORDERS,
 } from "./seed-data";
 import { seedPreventiveMaintenance } from "./seed-pm";
+import { seedInventory } from "./seed-inventory";
 
 export async function seed(db: PrismaClient, password: string, { quiet = false } = {}) {
   const log = (msg: string) => !quiet && console.log(msg);
@@ -74,6 +75,7 @@ export async function seed(db: PrismaClient, password: string, { quiet = false }
     }
     const assetCount = await seedEquipment(db, org.id, orgData.slug, hospitals, users);
     await seedPreventiveMaintenance(db, org.id, orgData.slug, users);
+    await seedInventory(db, org.id, orgData.slug, users);
     log(
       `  ✓ ${org.name}: ${orgData.hospitals.length} hospitals, ${orgData.members.length} members, ${assetCount} fictional assets`,
     );

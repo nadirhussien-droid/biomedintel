@@ -12,9 +12,10 @@ runDailyJobs()
   .then((r) => {
     console.log(
       `PM: ${r.pm.created} work order(s) created · ${r.pm.missed} missed · ${r.pm.failed} failed · ${r.pm.remindersSent} reminder(s). ` +
-        `Reports: ${r.reports.created} created · ${r.reports.alreadyDone} already done · ${r.reports.failed} failed.`,
+        `Reports: ${r.reports.created} created · ${r.reports.alreadyDone} already done · ${r.reports.failed} failed. ` +
+        `Reminders: ${r.reminders.sent} sent · ${r.reminders.failed} organisation(s) failed.`,
     );
-    if (r.pm.failed || r.reports.failed) process.exitCode = 2;
+    if (r.pm.failed || r.reports.failed || r.reminders.failed) process.exitCode = 2;
   })
   .catch((error) => {
     console.error("Daily job stopped:", (error as Error).message);

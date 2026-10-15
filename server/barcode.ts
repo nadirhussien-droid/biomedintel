@@ -36,3 +36,16 @@ export function code128(assetTag: string): Barcode {
 export function moduleWidthMm(barcode: Barcode, widthMm: number): number {
   return widthMm / barcode.modules;
 }
+
+/** Stage 8: Code 128 barcode of a spare part's internal part number (same symbology as equipment labels). */
+export function partCode128(partNumber: string): Barcode {
+  if (!/^[A-Z0-9][A-Z0-9./_-]{0,39}$/.test(partNumber)) throw new Error("Not a valid part number for a barcode");
+  const [symbol] = bwipjs.raw({ bcid: "code128", text: partNumber });
+  const bars: [number, number][] = [];
+  let x = QUIET_ZONE;
+  symbol.sbs.forEach((width, i) => {
+    if (i % 2 === 0) bars.push([x, width]);
+    x += width;
+  });
+  return { modules: x + QUIET_ZONE, bars };
+}

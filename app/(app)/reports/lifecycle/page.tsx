@@ -5,6 +5,8 @@ import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
 import { NotFoundError } from "@/server/authz/errors";
 import { analyticsFilterOptions, getLifecycleReport } from "@/server/services/analytics";
+import { lifecycleLists } from "@/server/services/lifecycle";
+import { REPLACEMENT_REVIEW_LABELS } from "@/lib/validation/inventory";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ReportFilters, filterQuery } from "@/components/analytics/filters";
@@ -58,12 +60,12 @@ export default async function LifecyclePage({ searchParams }: { searchParams: Se
   const raw = await readReportParams(searchParams);
   let data;
   try {
-    data = await Promise.all([getLifecycleReport(ctx, raw), analyticsFilterOptions(ctx)]);
+    data = await Promise.all([getLifecycleReport(ctx, raw), analyticsFilterOptions(ctx), lifecycleLists(ctx)]);
   } catch (e) {
     if (e instanceof NotFoundError) notFound();
     throw e;
   }
-  const [l, options] = data;
+  const [l, options, lists] = data;
   const query = filterQuery(l.q, undefined, { period: undefined, threshold: l.q.threshold });
   return (
     <>
@@ -164,6 +166,61 @@ export default async function LifecyclePage({ searchParams }: { searchParams: Se
           </div>
         )}
       </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardTitle>Lifecycle reviews due ({lists.reviews.length})</CardTitle>
+          <p className="text-ink-muted text-xs">
+            Review date within {lists.leadDays} days, or a replacement review marked due or under review. Set on each
+            asset&apos;s Lifecycle section.
+          </p>
+          {lists.reviews.length === 0 ? (
+            <Empty>No lifecycle reviews due.</Empty>
+          ) : (
+            <ul className="divide-line divide-y text-sm">
+              {lists.reviews.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                  <span>
+                    <Link href={`/assets/${r.id}#lifecycle`} className={recordLink}>
+                      {r.assetTag}
+                    </Link>{" "}
+                    · {r.name} · {r.hospital.code}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {r.replacementReview
+                      ? REPLACEMENT_REVIEW_LABELS[r.replacementReview as keyof typeof REPLACEMENT_REVIEW_LABELS]
+                      : null}
+                    {r.lifecycleReviewOn ? ` · ${fmtDate(r.lifecycleReviewOn)}` : ""}
+                    {r.overdue ? <ToneTag tone="danger">Overdue</ToneTag> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card>
+          <CardTitle>Decommissioned assets ({lists.decommissioned.length})</CardTitle>
+          {lists.decommissioned.length === 0 ? (
+            <Empty>No decommissioned assets.</Empty>
+          ) : (
+            <ul className="divide-line divide-y text-sm">
+              {lists.decommissioned.map((d) => (
+                <li key={d.id} className="py-1.5">
+                  <Link href={`/assets/${d.id}#lifecycle`} className={recordLink}>
+                    {d.assetTag}
+                  </Link>{" "}
+                  · {d.name} · {d.hospital}
+                  <div className="text-ink-muted text-xs">
+                    Decommissioned {fmtDate(d.decommissionedOn)}
+                    {d.reason ? ` · ${d.reason}` : ""} ·{" "}
+                    {d.disposal ? `${d.disposal} ${fmtDate(d.disposedOn)}` : "Disposal not yet recorded"}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
       <Card>
         <CardTitle>Acquisition cost</CardTitle>
         {!l.financial || !l.costs || !l.costCoverage ? (

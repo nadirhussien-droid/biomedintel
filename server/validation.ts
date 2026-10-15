@@ -30,3 +30,20 @@ export function isUniqueViolation(error: unknown): boolean {
     e.meta?.driverAdapterError?.cause?.originalCode === "23505"
   );
 }
+
+/**
+ * When a database rule refused a write (CHECK constraint or a trigger that
+ * raised check_violation), returns the database message; otherwise null.
+ * Used to turn last-line-of-defence refusals into clear messages.
+ */
+export function checkViolationMessage(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const e = error as {
+    code?: string;
+    message?: string;
+    meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string } } };
+  };
+  const cause = e.meta?.driverAdapterError?.cause;
+  if (cause?.originalCode === "23514") return cause.originalMessage ?? "check_violation";
+  return null;
+}

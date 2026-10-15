@@ -26,6 +26,7 @@ export default async function ReportsLayout({ children }: { children: ReactNode 
     { href: "/reports/safety", label: "Electrical safety" },
     { href: "/reports/governance", label: "Plan governance" },
     { href: "/reports/lifecycle", label: "Lifecycle & cost" },
+    { href: "/reports/costs", label: "Parts & service" },
     { href: "/reports/scheduled", label: "Scheduled reports" },
   ];
   return (

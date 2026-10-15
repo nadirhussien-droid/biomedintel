@@ -9,6 +9,8 @@ import { Badge, Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { StatusBadge } from "@/components/assets/status-badge";
 import { AssetPicker, ReportForm } from "./report-form";
+import { warrantyForAsset } from "@/server/services/warranties";
+import { WarrantyPanel } from "@/components/stage8/work-order-extras";
 
 export const metadata: Metadata = { title: "Report a fault" };
 
@@ -32,6 +34,8 @@ export default async function ReportFaultPage({
       })
     : null;
   const unusable = asset && (asset.archivedAt !== null || asset.status === "DECOMMISSIONED");
+  // Stage 8: warranty information as recorded, for roles that may see it (null otherwise).
+  const warranty = asset && !unusable ? await warrantyForAsset(ctx, asset.id) : null;
 
   return (
     <>
@@ -80,6 +84,11 @@ export default async function ReportFaultPage({
           <ReportForm assetId={asset.id} assetTag={asset.assetTag} />
         </Card>
       )}
+      {asset && !unusable && warranty ? (
+        <div className="max-w-3xl">
+          <WarrantyPanel data={warranty} assetId={asset.id} />
+        </div>
+      ) : null}
     </>
   );
 }

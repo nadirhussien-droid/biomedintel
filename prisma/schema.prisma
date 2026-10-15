@@ -99,6 +99,10 @@ enum WarrantyKind {
 /// commissioning, EOL flags and disposal arrive with the lifecycle module.
 enum LifecycleEventType {
   DECOMMISSION
+  /// Stage 8: a recorded replacement review decision (no approval step).
+  REPLACEMENT_REVIEW
+  /// Stage 8: what happened to a decommissioned device (disposal or transfer out).
+  DISPOSAL
 
   @@map("lifecycle_event_type")
 }
@@ -108,6 +112,8 @@ enum LifecycleEventStatus {
   APPROVED
   REJECTED
   CANCELLED
+  /// Stage 8: a record of something that happened; no approval involved.
+  RECORDED
 
   @@map("lifecycle_event_status")
 }
@@ -341,6 +347,21 @@ model Organization {
   safetyHoldEvents    SafetyHoldEvent[]
   reportSchedules     ReportSchedule[]
   reportSnapshots     ReportSnapshot[]
+  suppliers           Supplier[]
+  supplierManufs      SupplierManufacturer[]
+  warrantyClaims      WarrantyClaim[]
+  warrantyClaimEvents WarrantyClaimEvent[]
+  stockLocations      StockLocation[]
+  parts               Part[]
+  partCompat          PartCompatibility[]
+  partSuppliers       PartSupplier[]
+  stockLevels         StockLevel[]
+  stockMovements      StockMovement[]
+  partReservations    PartReservation[]
+  purchaseRequests    PurchaseRequest[]
+  purchaseLines       PurchaseRequestLine[]
+  externalServices    ExternalService[]
+  inventorySettings   InventorySettings?
 
   @@map("organizations")
 }
@@ -368,6 +389,8 @@ model Hospital {
   plans           MaintenancePlan[]
   standardRules   TestStandardRule[]
   reportSchedules ReportSchedule[]
+  stockLocations  StockLocation[]
+  purchases       PurchaseRequest[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id]) // target for composite foreign keys
@@ -446,8 +469,11 @@ model Manufacturer {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   models       EquipmentModel[]
+  parts        Part[]
+  partCompat   PartCompatibility[]
+  suppliers    SupplierManufacturer[]
 
   @@unique([organizationId, id])
   @@map("manufacturers")
@@ -476,6 +502,7 @@ model EquipmentCategory {
   models        EquipmentModel[]
   plans         MaintenancePlan[]
   standardRules TestStandardRule[]
+  partCompat    PartCompatibility[]
 
   @@unique([organizationId, id])
   @@map("equipment_categories")
@@ -500,11 +527,12 @@ model EquipmentModel {
   createdAt                   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  manufacturer Manufacturer      @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
-  category     EquipmentCategory @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer Manufacturer        @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+  category     EquipmentCategory   @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
   assets       Asset[]
   plans        MaintenancePlan[]
+  partCompat   PartCompatibility[]
 
   @@unique([organizationId, id])
   @@index([organizationId, categoryId])
@@ -514,50 +542,59 @@ model EquipmentModel {
 /// One physical medical device. Never hard-deleted: archived instead, so its
 /// history (and later its work orders and test records) is kept.
 model Asset {
-  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId   String      @map("organization_id") @db.Uuid
-  hospitalId       String      @map("hospital_id") @db.Uuid
-  departmentId     String      @map("department_id") @db.Uuid
-  locationId       String?     @map("location_id") @db.Uuid
-  modelId          String      @map("model_id") @db.Uuid
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String             @map("organization_id") @db.Uuid
+  hospitalId        String             @map("hospital_id") @db.Uuid
+  departmentId      String             @map("department_id") @db.Uuid
+  locationId        String?            @map("location_id") @db.Uuid
+  modelId           String             @map("model_id") @db.Uuid
   /// Human-readable BiomedIntel.ai asset ID, e.g. "INF-0412". Unique per organisation.
   /// Printed on labels as text and as a Code 128 barcode.
-  assetTag         String      @map("asset_tag")
-  name             String
+  assetTag          String             @map("asset_tag")
+  name              String
   /// Not unique: manufacturers reuse serial numbers across models and lines.
-  serialNumber     String?     @map("serial_number")
+  serialNumber      String?            @map("serial_number")
   /// The hospital's own asset/inventory number, unique per hospital when present.
-  inventoryNumber  String?     @map("inventory_number")
-  description      String?
-  supplier         String?
-  status           AssetStatus @default(IN_SERVICE)
-  riskClass        RiskClass?  @map("risk_class")
-  purchaseDate     DateTime?   @map("purchase_date") @db.Date
-  commissionedAt   DateTime?   @map("commissioned_at") @db.Date
-  purchaseCost     Decimal?    @map("purchase_cost") @db.Decimal(14, 2)
-  purchaseCurrency String?     @map("purchase_currency") @db.Char(3)
-  eolDate          DateTime?   @map("eol_date") @db.Date
-  archivedAt       DateTime?   @map("archived_at") @db.Timestamptz(6)
-  archivedById     String?     @map("archived_by")
-  createdById      String?     @map("created_by")
-  updatedById      String?     @map("updated_by")
-  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  inventoryNumber   String?            @map("inventory_number")
+  description       String?
+  /// Free-text purchasing source (Stage 4). Stage 8 adds an optional link to the supplier register.
+  supplier          String?
+  supplierId        String?            @map("supplier_id") @db.Uuid
+  status            AssetStatus        @default(IN_SERVICE)
+  riskClass         RiskClass?         @map("risk_class")
+  purchaseDate      DateTime?          @map("purchase_date") @db.Date
+  commissionedAt    DateTime?          @map("commissioned_at") @db.Date
+  purchaseCost      Decimal?           @map("purchase_cost") @db.Decimal(14, 2)
+  purchaseCurrency  String?            @map("purchase_currency") @db.Char(3)
+  eolDate           DateTime?          @map("eol_date") @db.Date
+  /// Stage 8: when the asset's lifecycle should next be reviewed.
+  lifecycleReviewOn DateTime?          @map("lifecycle_review_on") @db.Date
+  /// Stage 8: latest replacement review decision (NULL = none recorded).
+  replacementReview ReplacementReview? @map("replacement_review")
+  archivedAt        DateTime?          @map("archived_at") @db.Timestamptz(6)
+  archivedById      String?            @map("archived_by")
+  createdById       String?            @map("created_by")
+  updatedById       String?            @map("updated_by")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  hospital        Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
-  department      Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
-  location        Location?            @relation(fields: [organizationId, departmentId, locationId], references: [organizationId, departmentId, id], onDelete: Restrict)
-  model           EquipmentModel       @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
-  statusHistory   AssetStatusHistory[]
-  warranties      Warranty[]
-  lifecycleEvents LifecycleEvent[]
-  workOrders      WorkOrder[]
-  downtimeEvents  DowntimeEvent[]
-  plans           MaintenancePlan[]
-  pmSchedules     PmSchedule[]
-  pmOccurrences   PmOccurrence[]
-  safetyHolds     SafetyHold[]
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital         Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department       Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  location         Location?            @relation(fields: [organizationId, departmentId, locationId], references: [organizationId, departmentId, id], onDelete: Restrict)
+  model            EquipmentModel       @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  statusHistory    AssetStatusHistory[]
+  warranties       Warranty[]
+  lifecycleEvents  LifecycleEvent[]
+  workOrders       WorkOrder[]
+  downtimeEvents   DowntimeEvent[]
+  plans            MaintenancePlan[]
+  pmSchedules      PmSchedule[]
+  pmOccurrences    PmOccurrence[]
+  safetyHolds      SafetyHold[]
+  supplierRef      Supplier?            @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  warrantyClaims   WarrantyClaim[]
+  externalServices ExternalService[]
 
   @@unique([organizationId, assetTag])
   @@unique([organizationId, hospitalId, inventoryNumber])
@@ -591,22 +628,37 @@ model AssetStatusHistory {
 
 /// A warranty or service contract for one asset.
 model Warranty {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  assetId        String       @map("asset_id") @db.Uuid
-  kind           WarrantyKind @default(WARRANTY)
-  provider       String
-  startsOn       DateTime?    @map("starts_on") @db.Date
-  endsOn         DateTime     @map("ends_on") @db.Date
-  coverage       String?
-  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
-  createdById    String?      @map("created_by")
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String       @map("organization_id") @db.Uuid
+  assetId             String       @map("asset_id") @db.Uuid
+  kind                WarrantyKind @default(WARRANTY)
+  provider            String
+  startsOn            DateTime?    @map("starts_on") @db.Date
+  endsOn              DateTime     @map("ends_on") @db.Date
+  coverage            String?
+  /// Stage 8 additions. NULL coverage flags mean "not recorded", never "covered".
+  supplierId          String?      @map("supplier_id") @db.Uuid
+  reference           String?
+  coversParts         Boolean?     @map("covers_parts")
+  coversLabour        Boolean?     @map("covers_labour")
+  exclusions          String?
+  notes               String?
+  /// Where the signed document is kept (no file upload in Stage 8).
+  documentReference   String?      @map("document_reference")
+  /// Service contracts only: the contracted response time, if formally agreed.
+  responseTargetHours Int?         @map("response_target_hours")
+  updatedById         String?      @map("updated_by")
+  archivedAt          DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById         String?      @map("created_by")
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset           @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  supplier     Supplier?       @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  claims       WarrantyClaim[]
 
+  @@unique([organizationId, id])
   @@index([organizationId, endsOn])
   @@index([organizationId, assetId])
   @@map("warranties")
@@ -627,6 +679,10 @@ model LifecycleEvent {
   decidedById    String?              @map("decided_by")
   decidedAt      DateTime?            @map("decided_at") @db.Timestamptz(6)
   decisionNote   String?              @map("decision_note")
+  /// Stage 8: DISPOSAL details and REPLACEMENT_REVIEW outcome.
+  disposalMethod DisposalMethod?      @map("disposal_method")
+  reference      String?
+  reviewOutcome  ReplacementReview?   @map("review_outcome")
   createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -713,6 +769,10 @@ model WorkOrder {
   safetyHold       SafetyHold?              @relation("HoldWorkOrders", fields: [organizationId, safetyHoldId], references: [organizationId, id], onDelete: Restrict)
   checklistResults ChecklistResult[]
   holdsFailed      SafetyHold[]             @relation("HoldFailedWorkOrder")
+  stockMovements   StockMovement[]
+  partReservations PartReservation[]
+  externalServices ExternalService[]
+  warrantyClaims   WarrantyClaim[]
 
   @@unique([organizationId, number])
   @@unique([organizationId, id])
@@ -1401,4 +1461,514 @@ model TwoFactor {
   @@index([secret])
   @@index([userId])
   @@map("auth_two_factors")
+}
+
+// ─── Lifecycle, warranties, inventory and suppliers (Stage 8) ────────────────
+// Business rules (stock never negative, movements append-only, stock levels
+// written only by the movement trigger, second-person purchase approval,
+// decommissioned devices never re-activated) live in *_inventory_security.
+
+enum ReplacementReview {
+  DUE
+  IN_REVIEW
+  RETAIN
+  REPLACE_PLANNED
+
+  @@map("replacement_review")
+}
+
+enum DisposalMethod {
+  RECYCLED
+  DESTROYED
+  RETURNED_TO_SUPPLIER
+  SOLD
+  DONATED
+  TRANSFERRED_OUT
+  OTHER
+
+  @@map("disposal_method")
+}
+
+enum SupplierKind {
+  MANUFACTURER
+  DISTRIBUTOR
+  PARTS_SUPPLIER
+  SERVICE_PROVIDER
+  OTHER
+
+  @@map("supplier_kind")
+}
+
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+  WITHDRAWN
+
+  @@map("claim_status")
+}
+
+enum StockUnit {
+  EACH
+  PAIR
+  SET
+  KIT
+  PACK
+  BOX
+  ROLL
+  BOTTLE
+  METRE
+
+  @@map("stock_unit")
+}
+
+enum MovementType {
+  INITIAL
+  RECEIPT
+  ISSUE
+  RETURN
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT
+  WRITE_OFF
+
+  @@map("movement_type")
+}
+
+enum ReservationStatus {
+  ACTIVE
+  ISSUED
+  RELEASED
+
+  @@map("reservation_status")
+}
+
+enum PurchaseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+
+  @@map("purchase_status")
+}
+
+enum ExternalServiceStatus {
+  REQUESTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@map("external_service_status")
+}
+
+/// A supplier, manufacturer or external service provider (organisation-wide).
+model Supplier {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String         @map("organization_id") @db.Uuid
+  name              String
+  kinds             SupplierKind[]
+  contactName       String?        @map("contact_name")
+  email             String?
+  phone             String?
+  address           String?
+  /// Parts and service categories offered, as free labels.
+  serviceCategories String[]       @map("service_categories")
+  notes             String?
+  status            RecordStatus   @default(ACTIVE)
+  archivedAt        DateTime?      @map("archived_at") @db.Timestamptz(6)
+  createdById       String         @map("created_by")
+  updatedById       String?        @map("updated_by")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturers    SupplierManufacturer[]
+  assets           Asset[]
+  warranties       Warranty[]
+  partSuppliers    PartSupplier[]
+  movements        StockMovement[]
+  purchases        PurchaseRequest[]
+  externalServices ExternalService[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@map("suppliers")
+}
+
+/// Which equipment manufacturers a supplier supports.
+model SupplierManufacturer {
+  organizationId String @map("organization_id") @db.Uuid
+  supplierId     String @map("supplier_id") @db.Uuid
+  manufacturerId String @map("manufacturer_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  supplier     Supplier     @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  manufacturer Manufacturer @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, supplierId, manufacturerId])
+  @@map("supplier_manufacturers")
+}
+
+/// A claim made under a warranty or service contract. The status is what
+/// actually happened, recorded by a person: never assumed from dates.
+model WarrantyClaim {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String      @map("organization_id") @db.Uuid
+  warrantyId      String      @map("warranty_id") @db.Uuid
+  assetId         String      @map("asset_id") @db.Uuid
+  workOrderId     String?     @map("work_order_id") @db.Uuid
+  status          ClaimStatus @default(DRAFT)
+  claimReference  String?     @map("claim_reference")
+  description     String
+  evidence        String?
+  submittedOn     DateTime?   @map("submitted_on") @db.Date
+  decidedOn       DateTime?   @map("decided_on") @db.Date
+  outcome         String?
+  amountClaimed   Decimal?    @map("amount_claimed") @db.Decimal(14, 2)
+  amountRecovered Decimal?    @map("amount_recovered") @db.Decimal(14, 2)
+  currency        String?     @db.Char(3)
+  createdById     String      @map("created_by")
+  updatedById     String?     @map("updated_by")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  warranty     Warranty             @relation(fields: [organizationId, warrantyId], references: [organizationId, id], onDelete: Restrict)
+  asset        Asset                @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?           @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  events       WarrantyClaimEvent[]
+  services     ExternalService[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, assetId])
+  @@index([organizationId, status])
+  @@map("warranty_claims")
+}
+
+/// Claim status history. Append-only.
+model WarrantyClaimEvent {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  claimId        String       @map("claim_id") @db.Uuid
+  fromStatus     ClaimStatus? @map("from_status")
+  toStatus       ClaimStatus  @map("to_status")
+  note           String?
+  actorId        String       @map("actor_id")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim        WarrantyClaim @relation(fields: [organizationId, claimId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, claimId, createdAt])
+  @@map("warranty_claim_events")
+}
+
+/// A store, cupboard or van holding spare parts. Belongs to one hospital.
+model StockLocation {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  hospitalId     String       @map("hospital_id") @db.Uuid
+  code           String
+  name           String
+  description    String?
+  status         RecordStatus @default(ACTIVE)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById    String       @map("created_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital     Hospital          @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  levels       StockLevel[]
+  movements    StockMovement[]
+  reservations PartReservation[]
+
+  @@unique([organizationId, hospitalId, code])
+  @@unique([organizationId, id])
+  @@map("stock_locations")
+}
+
+/// A spare part in the organisation's catalogue (Stage 2 `parts`).
+model Part {
+  id                     String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  /// Internal part number / SKU. Unique per organisation; printed as a Code 128 barcode.
+  partNumber             String       @map("part_number")
+  name                   String
+  description            String?
+  manufacturerId         String?      @map("manufacturer_id") @db.Uuid
+  manufacturerPartNumber String?      @map("manufacturer_part_number")
+  unit                   StockUnit    @default(EACH)
+  /// Low-stock threshold: alert when available stock is at or below this.
+  minLevel               Int          @default(0) @map("min_level")
+  /// Target stock level used for the suggested reorder quantity.
+  targetLevel            Int?         @map("target_level")
+  unitCost               Decimal?     @map("unit_cost") @db.Decimal(14, 2)
+  currency               String?      @db.Char(3)
+  tracksLots             Boolean      @default(false) @map("tracks_lots")
+  tracksExpiry           Boolean      @default(false) @map("tracks_expiry")
+  status                 RecordStatus @default(ACTIVE)
+  archivedAt             DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById            String       @map("created_by")
+  updatedById            String?      @map("updated_by")
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer  Manufacturer?         @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+  compatibility PartCompatibility[]
+  suppliers     PartSupplier[]
+  levels        StockLevel[]
+  movements     StockMovement[]
+  reservations  PartReservation[]
+  purchaseLines PurchaseRequestLine[]
+
+  @@unique([organizationId, partNumber])
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@map("parts")
+}
+
+/// Which equipment a part fits: exactly one of model, category or manufacturer.
+model PartCompatibility {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  partId         String  @map("part_id") @db.Uuid
+  modelId        String? @map("model_id") @db.Uuid
+  categoryId     String? @map("category_id") @db.Uuid
+  manufacturerId String? @map("manufacturer_id") @db.Uuid
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  part         Part               @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  model        EquipmentModel?    @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  category     EquipmentCategory? @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  manufacturer Manufacturer?      @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, partId])
+  @@index([organizationId, modelId])
+  @@map("part_compatibility")
+}
+
+/// Where a part can be bought, with the supplier's own part number.
+model PartSupplier {
+  organizationId     String  @map("organization_id") @db.Uuid
+  partId             String  @map("part_id") @db.Uuid
+  supplierId         String  @map("supplier_id") @db.Uuid
+  supplierPartNumber String? @map("supplier_part_number")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  part         Part         @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  supplier     Supplier     @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, partId, supplierId])
+  @@map("part_suppliers")
+}
+
+/// Quantity on hand per part, store and lot. Written ONLY by the stock
+/// movement trigger, so it always equals the sum of recorded movements.
+model StockLevel {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  partId         String    @map("part_id") @db.Uuid
+  locationId     String    @map("location_id") @db.Uuid
+  /// "" when the part does not track lots.
+  lotNumber      String    @default("") @map("lot_number")
+  expiresOn      DateTime? @map("expires_on") @db.Date
+  onHand         Int       @default(0) @map("on_hand")
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  part         Part          @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  location     StockLocation @relation(fields: [organizationId, locationId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, partId, locationId, lotNumber])
+  @@index([organizationId, locationId])
+  @@map("stock_levels")
+}
+
+/// Every change in stock (Stage 2 `stock_transactions`). Append-only:
+/// a mistake is corrected by a new movement, never by editing.
+model StockMovement {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  partId         String       @map("part_id") @db.Uuid
+  locationId     String       @map("location_id") @db.Uuid
+  lotNumber      String       @default("") @map("lot_number")
+  expiresOn      DateTime?    @map("expires_on") @db.Date
+  type           MovementType
+  /// Signed: positive adds stock, negative removes it.
+  quantity       Int
+  /// Lot balance after this movement (set by the trigger).
+  balanceAfter   Int          @default(0) @map("balance_after")
+  unitCost       Decimal?     @map("unit_cost") @db.Decimal(14, 2)
+  currency       String?      @db.Char(3)
+  workOrderId    String?      @map("work_order_id") @db.Uuid
+  reservationId  String?      @map("reservation_id") @db.Uuid
+  purchaseLineId String?      @map("purchase_line_id") @db.Uuid
+  supplierId     String?      @map("supplier_id") @db.Uuid
+  /// Pairs the two halves of a transfer.
+  transferId     String?      @map("transfer_id") @db.Uuid
+  reference      String?
+  reason         String?
+  /// One-time key from the form: a retried or double-clicked submission is recorded once.
+  idempotencyKey String       @map("idempotency_key")
+  performedById  String       @map("performed_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  part         Part                 @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  location     StockLocation        @relation(fields: [organizationId, locationId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?           @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  reservation  PartReservation?     @relation(fields: [organizationId, reservationId], references: [organizationId, id], onDelete: Restrict)
+  purchaseLine PurchaseRequestLine? @relation(fields: [organizationId, purchaseLineId], references: [organizationId, id], onDelete: Restrict)
+  supplier     Supplier?            @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, partId, createdAt])
+  @@index([organizationId, workOrderId])
+  @@index([organizationId, createdAt])
+  @@map("stock_movements")
+}
+
+/// Parts set aside for a work order. Available = on hand − active reservations.
+model PartReservation {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  workOrderId    String            @map("work_order_id") @db.Uuid
+  partId         String            @map("part_id") @db.Uuid
+  locationId     String            @map("location_id") @db.Uuid
+  quantity       Int
+  status         ReservationStatus @default(ACTIVE)
+  idempotencyKey String            @map("idempotency_key")
+  createdById    String            @map("created_by")
+  closedById     String?           @map("closed_by")
+  closedAt       DateTime?         @map("closed_at") @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder       @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  part         Part            @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  location     StockLocation   @relation(fields: [organizationId, locationId], references: [organizationId, id], onDelete: Restrict)
+  movements    StockMovement[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, id])
+  @@index([organizationId, partId, locationId, status])
+  @@index([organizationId, workOrderId])
+  @@map("part_reservations")
+}
+
+/// A request to buy parts. A record only: nothing is sent to a supplier.
+model PurchaseRequest {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  number         String
+  hospitalId     String         @map("hospital_id") @db.Uuid
+  supplierId     String?        @map("supplier_id") @db.Uuid
+  status         PurchaseStatus @default(DRAFT)
+  justification  String?
+  requestedById  String         @map("requested_by")
+  submittedAt    DateTime?      @map("submitted_at") @db.Timestamptz(6)
+  decidedById    String?        @map("decided_by")
+  decidedAt      DateTime?      @map("decided_at") @db.Timestamptz(6)
+  decisionNote   String?        @map("decision_note")
+  orderedById    String?        @map("ordered_by")
+  orderedAt      DateTime?      @map("ordered_at") @db.Timestamptz(6)
+  orderReference String?        @map("order_reference")
+  cancelledById  String?        @map("cancelled_by")
+  cancelledAt    DateTime?      @map("cancelled_at") @db.Timestamptz(6)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital     Hospital              @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  supplier     Supplier?             @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  lines        PurchaseRequestLine[]
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestLine {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  requestId         String   @map("request_id") @db.Uuid
+  partId            String   @map("part_id") @db.Uuid
+  quantity          Int
+  estimatedUnitCost Decimal? @map("estimated_unit_cost") @db.Decimal(14, 2)
+  currency          String?  @db.Char(3)
+  /// Kept in step by the movement trigger from RECEIPT movements.
+  receivedQuantity  Int      @default(0) @map("received_quantity")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  request      PurchaseRequest @relation(fields: [organizationId, requestId], references: [organizationId, id], onDelete: Restrict)
+  part         Part            @relation(fields: [organizationId, partId], references: [organizationId, id], onDelete: Restrict)
+  receipts     StockMovement[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, requestId, partId])
+  @@map("purchase_request_lines")
+}
+
+/// Work sent to an outside supplier, always attached to an existing work order.
+model ExternalService {
+  id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String                @map("organization_id") @db.Uuid
+  workOrderId       String                @map("work_order_id") @db.Uuid
+  assetId           String                @map("asset_id") @db.Uuid
+  supplierId        String                @map("supplier_id") @db.Uuid
+  warrantyClaimId   String?               @map("warranty_claim_id") @db.Uuid
+  status            ExternalServiceStatus @default(REQUESTED)
+  supplierReference String?               @map("supplier_reference")
+  description       String
+  requestedOn       DateTime              @map("requested_on") @db.Date
+  dispatchedOn      DateTime?             @map("dispatched_on") @db.Date
+  expectedBy        DateTime?             @map("expected_by") @db.Date
+  completedOn       DateTime?             @map("completed_on") @db.Date
+  serviceReportRef  String?               @map("service_report_ref")
+  partsSupplied     String?               @map("parts_supplied")
+  cost              Decimal?              @db.Decimal(14, 2)
+  currency          String?               @db.Char(3)
+  notes             String?
+  createdById       String                @map("created_by")
+  updatedById       String?               @map("updated_by")
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder     WorkOrder      @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  asset         Asset          @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  supplier      Supplier       @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  warrantyClaim WarrantyClaim? @relation(fields: [organizationId, warrantyClaimId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, workOrderId])
+  @@index([organizationId, supplierId])
+  @@index([organizationId, status])
+  @@map("external_services")
+}
+
+/// Per-organisation reminder thresholds and the stock adjustment limit.
+model InventorySettings {
+  organizationId          String   @id @map("organization_id") @db.Uuid
+  warrantyReminderDays    Int[]    @default([90, 60, 30]) @map("warranty_reminder_days")
+  contractReminderDays    Int[]    @default([90, 60, 30]) @map("contract_reminder_days")
+  stockExpiryWarningDays  Int      @default(60) @map("stock_expiry_warning_days")
+  lifecycleReviewLeadDays Int      @default(30) @map("lifecycle_review_lead_days")
+  /// Inventory Managers may adjust or write off up to this many units at once; more needs an Engineering Manager.
+  adjustmentLimit         Int      @default(10) @map("adjustment_limit")
+  updatedById             String?  @map("updated_by")
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@map("inventory_settings")
 }

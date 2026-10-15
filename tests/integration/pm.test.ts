@@ -1004,6 +1004,7 @@ describe("scheduler endpoint", () => {
         "failed",
         "missed",
         "organisations",
+        "reminders", // Stage 8: lifecycle, warranty and inventory reminders (counts only)
         "remindersSent",
         "reports", // Stage 7: scheduled report snapshots run in the same daily job
         "skipped",

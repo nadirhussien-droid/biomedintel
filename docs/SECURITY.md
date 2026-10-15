@@ -1,4 +1,4 @@
-# BiomedIntel.ai — security (Stages 3 to 7)
+# BiomedIntel.ai — security (Stages 3 to 8)
 
 This describes what is in place, how it works, and what is **not** done yet. Technical safeguards are not the same as regulatory compliance or certification; BiomedIntel.ai makes no compliance claim.
 
@@ -178,6 +178,19 @@ The export uses the same scope and filters as the register screen, is capped at 
   - Failures are audited as `report.generation_failed` without internal details and retried next run.
 - **Audit events added:** `analytics.exported`, `analytics.financial_viewed`, `report.schedule_created`, `report.schedule_paused`, `report.schedule_resumed`, `report.snapshot_generated`, `report.generation_failed`.
 
+## Lifecycle, warranties, inventory and suppliers (Stage 8)
+
+- **Tables and RLS.** 15 new tables, all with Row-Level Security enabled **and forced**, composite `(organization_id, x)` foreign keys and no DELETE grant. A manual check confirmed another organisation sees no rows and forged inserts are refused.
+- **Stock integrity.** `stock_levels` is written only by the `stock_movements_apply` trigger; the app role has no UPDATE/DELETE on `stock_levels` or `stock_movements` (checked: "permission denied"), and movements and claim history are append-only (trigger). CHECKs refuse negative stock, adjustments without a reason, receipts not against an ordered request, and receipts above the requested quantity. Every stock form carries a one-time key with `UNIQUE (organization_id, idempotency_key)`; issues and transfers lock the part row, so concurrent requests cannot both take the last units (tested).
+- **Permissions:** `inventory.view`, `inventory.manage`, `stock.receive`, `stock.adjust` (Inventory Managers up to a configurable limit), `stock.issue` (technicians only on their own jobs), `inventory.viewCost`, `inventory.settings`, `purchase.view/request/approve/order`, `supplier.view/manage`, `service.manage`, `warranty.view/manage/claim`, `lifecycle.manage`. Purchase approval needs a second person (service and CHECK `decided_by <> requested_by`).
+- **Scope.** Stores belong to a hospital; stock and movements are limited to stores in the user's hospitals. Work orders, assets, warranties and claims use the existing hospital/department scope. Every referenced part, store, supplier, work order, warranty and purchase line is re-checked on the server; unknown or out-of-scope ids return NotFound, and out-of-scope attempts are audited.
+- **Safety controls untouched.** Inventory, warranty, purchasing, supplier and lifecycle actions never change a device's operational status; issuing parts never completes a job; a decommissioned device cannot be moved to another status (database); safety holds still require the Stage 6 second-person release.
+- **Financial data.** Unit costs, stock value, claim amounts and supplier costs are shown only to `inventory.viewCost` / `asset.viewCost` / `analytics.financial` roles and can only be changed by them; the cost report is audited (`analytics.financial_viewed`). Reminder texts contain no costs.
+- **Barcode look-up.** Part codes are resolved on the server within the user's organisation (RLS); other organisations' part numbers never resolve.
+- **Reminders** run with the restricted app role per organisation, carry de-duplication keys, go only to members whose role and scope allow them, and record failures (`reminders.failed`) without internal details.
+- **Redirects** after actions are built only from validated UUIDs; the sign-in "return to" allow-list gained the inventory, supplier and cost report pages.
+- **Documents are not uploaded** in this stage (only a text reference), so no new file-storage surface was added.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.
@@ -235,6 +248,11 @@ The export uses the same scope and filters as the register screen, is capped at 
 27. **Scheduled reports are delivered in the app only.** An email provider would need a cost decision and its own security review (no report content in email bodies).
 28. **Fault categories exist only for jobs signed off from Stage 7,** so older faults appear as "Not classified".
 29. **Reports support audits; they do not certify compliance** with IEC 62353, AS/NZS 3551 or any regulation.
+30. **Warranty and contract documents are not stored.** Only a reference to where they are kept. Secure document storage is planned with the knowledge module.
+31. **Costs are partial by design.** Parts and external service costs are recorded; in-house labour, taxes (unless entered) and total cost of ownership are not. Currencies are never converted.
+32. **Purchasing is a request record only.** Ordering, quotes, invoices, budgets and any approval steps beyond one second person happen outside BiomedIntel.ai.
+33. **No backorders or negative stock.** These need an explicitly approved policy before they are added.
+34. **Reminder recipients follow roles,** not a configurable list of people; supplier response times are not measured (no first-response timestamp).
 
 ## Backups and environments
 

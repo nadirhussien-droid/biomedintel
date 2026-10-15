@@ -132,6 +132,56 @@ export const PERMISSIONS = {
   "analytics.financial": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
   // Create and change scheduled reports.
   "reports.schedule": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+
+  // Lifecycle (Stage 8): replacement reviews, lifecycle review dates, disposal
+  // records and the asset's supplier link. Decommissioning keeps its Stage 4 rule.
+  "lifecycle.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+
+  // Warranties and service contracts (Stage 8). Viewing follows asset access
+  // (Fault Reporters excluded); recording claims is for managers.
+  "warranty.view": [
+    "ORG_ADMIN",
+    "ENGINEERING_MANAGER",
+    "TECHNICIAN",
+    "INVENTORY_MANAGER",
+    "DEPARTMENT_HEAD",
+    "AUDITOR",
+  ],
+  "warranty.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN"],
+  "warranty.claim": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+
+  // Suppliers and external service providers (Stage 8).
+  "supplier.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "AUDITOR"],
+  "supplier.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
+  // External service on a work order: managers create and update; the
+  // assigned technician may update dates and references on their own job.
+  "service.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN"],
+
+  // Spare parts inventory (Stage 8, Stage 2 workflow H). Stores belong to a
+  // hospital: stock is visible and movable only for stores in the user's hospitals.
+  "inventory.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "AUDITOR"],
+  // Part catalogue, stores, reorder levels.
+  "inventory.manage": ["ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
+  // Initial stock, receipts and transfers.
+  "stock.receive": ["ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
+  // Adjustments and write-offs. Inventory Managers up to the organisation's
+  // adjustment limit; above it an Engineering Manager (rule in the service).
+  "stock.adjust": ["ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
+  // Reserve, issue and return parts on work orders. Technicians: only on jobs
+  // assigned to them (rule in the service).
+  "stock.issue": ["ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER"],
+  // Unit costs and stock value are financial information.
+  "inventory.viewCost": ["ORG_ADMIN", "ENGINEERING_MANAGER", "INVENTORY_MANAGER", "AUDITOR"],
+  // Reminder thresholds and the adjustment limit.
+  "inventory.settings": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+
+  // Purchase requests (records only; nothing is sent or paid).
+  "purchase.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "AUDITOR"],
+  "purchase.request": ["ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER"],
+  // Approval needs a second person (database CHECK: approver <> requester).
+  "purchase.approve": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  // Mark an approved request as ordered (done outside BiomedIntel.ai).
+  "purchase.order": ["ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
 } as const satisfies Record<string, readonly MembershipRole[]>;
 
 export type Action = keyof typeof PERMISSIONS;

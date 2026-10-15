@@ -721,6 +721,9 @@ describe("large data sets", () => {
         (SELECT approved_revision_id FROM maintenance_plans WHERE id = '${sch.planId}'), g,
         date '1990-01-01' + g, 'COMPLETED', date '1990-01-01' + g, (g % 3 <> 0), now(), now()
       FROM generate_series(1, 10000) g`);
+    // Refresh planner statistics after the bulk load, as PostgreSQL's autovacuum
+    // would in normal operation; otherwise the timing depends on when it runs.
+    await owner.$executeRawUnsafe("ANALYZE work_orders, pm_occurrences, work_order_events, downtime_events");
     const c = await ctx(fx.manager);
     const year = { period: "custom", from: "2025-01-01", to: "2025-12-31" };
     const timings: Record<string, number> = {};
@@ -746,7 +749,7 @@ describe("large data sets", () => {
     const wo = await getWorkOrderAnalytics(c, year, { now: NOW });
     expect(wo.counts.completed).toBe(20000);
     expect(wo.durations.completion.median).toBe(5);
-    console.log("analytics timings (ms):", JSON.stringify(timings));
+    console.error("analytics timings (ms):", JSON.stringify(timings));
     for (const t of Object.values(timings)) expect(t).toBeLessThan(5000);
   });
 });

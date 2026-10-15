@@ -3,8 +3,11 @@
 
 /** The user is signed in but not allowed to do this. */
 export class AuthorizationError extends Error {
-  constructor(public readonly action: string) {
-    super("You do not have permission to do this.");
+  constructor(
+    public readonly action: string,
+    message = "You do not have permission to do this.",
+  ) {
+    super(message);
     this.name = "AuthorizationError";
   }
 }

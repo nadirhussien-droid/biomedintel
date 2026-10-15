@@ -5,6 +5,15 @@ import type { ReactNode } from "react";
 import { requireAccess } from "@/server/auth/session";
 import { NotFoundError } from "@/server/authz/errors";
 import { getWorkOrder } from "@/server/services/work-orders";
+import { can } from "@/server/authz/access";
+import { getWorkOrderParts } from "@/server/services/work-order-parts";
+import { partOptions } from "@/server/services/inventory";
+import { warrantyForAsset } from "@/server/services/warranties";
+import { listServicesForWorkOrder } from "@/server/services/external-services";
+import { supplierOptions } from "@/server/services/suppliers";
+import { WorkOrderParts } from "@/components/stage8/work-order-parts";
+import { ExternalServicePanel, WarrantyPanel } from "@/components/stage8/work-order-extras";
+import { localToday } from "@/lib/pm/dates";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { StatusBadge } from "@/components/assets/status-badge";
@@ -56,9 +65,20 @@ const EVENT_LABELS: Record<string, string> = {
   REVIEWED: "Reviewed by manager",
   REOPENED: "Reopened",
   CANCELLED: "Cancelled",
+  PARTS_RESERVED: "Parts reserved",
+  PARTS_RELEASED: "Reservation released",
+  PARTS_ISSUED: "Parts issued",
+  PARTS_RETURNED: "Parts returned to stock",
+  PARTS_UNAVAILABLE: "Parts not available",
+  EXTERNAL_SERVICE: "External service",
 };
 
 const SAVED: Record<string, string> = {
+  "parts-reserved": "Parts reserved for this job.",
+  "parts-released": "Reservation released.",
+  "parts-issued": "Parts issued to this job. Stock updated. This does not mark the device repaired or safe to use.",
+  "parts-returned": "Return recorded. Stock updated.",
+  "service-updated": "External service updated.",
   reported: "Fault reported. The engineering team has been notified.",
   taken: "The job is now assigned to you.",
   started: "Work started.",
@@ -83,6 +103,15 @@ export default async function WorkOrderPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
+  // Stage 8 panels (each service checks permission and scope; null = not for this role).
+  const [parts, partChoices, warranty, services, suppliers] = await Promise.all([
+    getWorkOrderParts(ctx, wo.id),
+    can(ctx, "stock.issue") ? partOptions(ctx) : Promise.resolve([]),
+    wo.type === "CORRECTIVE" ? warrantyForAsset(ctx, wo.asset.id) : Promise.resolve(null),
+    listServicesForWorkOrder(ctx, wo.id),
+    can(ctx, "service.manage") ? supplierOptions(ctx) : Promise.resolve([]),
+  ]);
+  const hospitalToday = localToday(wo.hospital.timezone);
   const person = (uid: string | null) => (uid ? (wo.people[uid] ?? "Unknown user") : "—");
   const a = wo.allowed;
   const saved = typeof sp.saved === "string" ? SAVED[sp.saved] : undefined;
@@ -415,6 +444,19 @@ export default async function WorkOrderPage({
         </Card>
       ) : null}
 
+      {warranty ? <WarrantyPanel data={warranty} assetId={wo.asset.id} /> : null}
+      {parts ? <WorkOrderParts data={parts} partOptions={partChoices} /> : null}
+      {services ? (
+        <ExternalServicePanel
+          data={services}
+          workOrderId={wo.id}
+          open={["REQUESTED", "ASSIGNED", "IN_PROGRESS", "ON_HOLD"].includes(wo.status)}
+          suppliers={suppliers}
+          today={hospitalToday}
+          showCost={can(ctx, "inventory.viewCost")}
+        />
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardTitle>Work log</CardTitle>
@@ -432,9 +474,6 @@ export default async function WorkOrderPage({
               ))}
             </ul>
           )}
-          <p className="text-ink-muted text-xs">
-            Spare parts used will be recorded here once the inventory module (Stage 7) is built.
-          </p>
         </Card>
 
         <Card>

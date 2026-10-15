@@ -83,7 +83,7 @@ function auditOutsideScope(ctx: AccessContext, assetId: string, action: string) 
  * hides it), and an asset outside the user's hospitals/departments — so a
  * guessed id reveals nothing. Every such attempt is audited.
  */
-async function loadScopedAsset(ctx: AccessContext, tx: Tx, assetId: string, action: string) {
+export async function loadScopedAsset(ctx: AccessContext, tx: Tx, assetId: string, action: string) {
   const asset = await tx.asset.findFirst({
     where: { AND: [{ id: assetId }, assetScopeWhere(ctx)] },
     select: {
@@ -1004,7 +1004,16 @@ export async function addWarranty(ctx: AccessContext, input: unknown) {
         startsOn: toDate(data.startsOn),
         endsOn: toDate(data.endsOn)!,
         coverage: data.coverage,
+        supplierId: data.supplierId ? await activeSupplierId(tx, data.supplierId) : null,
+        reference: data.reference,
+        coversParts: data.coversParts,
+        coversLabour: data.coversLabour,
+        exclusions: data.exclusions,
+        notes: data.notes,
+        documentReference: data.documentReference,
+        responseTargetHours: data.kind === "SERVICE_CONTRACT" ? data.responseTargetHours : null,
         createdById: ctx.user.id,
+        updatedById: ctx.user.id,
       },
       select: { id: true },
     });
@@ -1018,6 +1027,13 @@ export async function addWarranty(ctx: AccessContext, input: unknown) {
       request: ctx.request,
     });
   });
+}
+
+/** A supplier reference must be an active supplier of this organisation (RLS) — otherwise a field error. */
+export async function activeSupplierId(tx: Tx, supplierId: string): Promise<string> {
+  const s = await tx.supplier.findFirst({ where: { id: supplierId, status: "ACTIVE" }, select: { id: true } });
+  if (!s) throw new ValidationError("Choose a supplier from the register.", { supplierId: ["Unknown supplier"] });
+  return s.id;
 }
 
 // ─── Decommissioning (decision 8: NUM approval) ──────────────────────────────

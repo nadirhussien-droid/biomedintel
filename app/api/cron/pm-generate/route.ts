@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   }
   try {
     const r = await runDailyJobs();
-    return NextResponse.json({ ...r.pm, reports: r.reports });
+    return NextResponse.json({ ...r.pm, reports: r.reports, reminders: r.reminders });
   } catch (error) {
     console.error("[cron pm-generate]", (error as Error).message);
     return NextResponse.json({ message: "Generation stopped; see the server log." }, { status: 500 });

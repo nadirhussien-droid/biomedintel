@@ -283,7 +283,7 @@ npm run pm:generate     # creates due PM work orders and reminders for every org
 
 ## Reports and analytics (Stage 7)
 
-Open **Reports and Analytics** in the sidebar. Full details, definitions and formulas are in [docs/STAGE-7.md](docs/STAGE-7.md).
+Open **Reports and Analytics** in the sidebar. Full details, definitions and formulas are in [docs/STAGE-7.md](docs/STAGE-7.md), [docs/STAGE-8.md](docs/STAGE-8.md).
 
 - **Dashboard:** 14 headline figures (equipment, work orders, planned maintenance, electrical safety, reliability). Each shows its definition, whether it is "right now" or "in the period", and links to the records behind it.
 - **Reports:** PM compliance (the single source of compliance figures — `/maintenance/reports` now redirects here), work order performance, equipment reliability, electrical safety and return to service, plan governance, lifecycle and cost.
@@ -296,10 +296,24 @@ Open **Reports and Analytics** in the sidebar. Full details, definitions and for
 **Daily job:**
 
 ```bash
-npm run jobs:daily      # PM generation and reminders, then scheduled report snapshots
+npm run jobs:daily      # PM generation and reminders, scheduled report snapshots, then lifecycle/inventory reminders
 ```
 
 Safe to run any number of times. The cron endpoint `/api/cron/pm-generate` runs the same job.
+
+## Lifecycle, warranties, spare parts and suppliers (Stage 8)
+
+Full details, definitions and a step-by-step tour are in [docs/STAGE-8.md](docs/STAGE-8.md).
+
+- **Asset pages** now have a **Lifecycle** section (stage worked out from the existing status and safety hold, key dates, replacement review, disposal record, full history) and a richer **Warranties** section (supplier, reference, parts/labour coverage _as recorded_, exclusions, claims with status history).
+- **Spare Parts Inventory:** parts with Code 128 part-number barcodes, stores per hospital, lots and expiry, low/out-of-stock/expiring views. Stock changes **only** through recorded movements (receipt, issue, return, transfer, adjustment, write-off); the database keeps the totals, refuses negative stock and never lets a movement be edited. **Available = on hand (unexpired) − reserved.**
+- **Work orders:** reserve, issue and return parts; record a part as unavailable; record external supplier work. None of this marks a device repaired or safe.
+- **Purchase requests:** draft → submitted → approved by a second person → marked ordered → received. Nothing is ordered or paid by BiomedIntel.ai; stock rises only when a receipt is recorded.
+- **Suppliers and Contracts:** supplier register, warranty and contract lists (active, expiring, expired, missing), supplier work in progress.
+- **Reports → Parts & service:** recorded parts and external service costs per currency (financial roles only, audited), consumption, write-offs, supplier history, claims.
+- **Reminders** (in-app, part of `npm run jobs:daily`): warranty/contract expiry (90/60/30 days by default), low and out-of-stock, expiring stock, overdue supplier work, purchase requests waiting, lifecycle reviews.
+
+The seed adds fictional suppliers, two stores and four parts with opening stock.
 
 ## Create the first Platform Super Administrator
 
@@ -365,6 +379,14 @@ Stage 7 adds tests for:
 - CSV formula safety, scheduled-report idempotency and recipient re-checks;
 - performance with 20,000 work orders and 10,000 PM due dates.
 
+Stage 8 adds tests for:
+
+- stock receipts, reservations, issues, returns, transfers, adjustments and write-offs;
+- duplicate and concurrent submissions recorded once, and stock never below zero;
+- purchase request approval by a second person and receipts only against ordered requests;
+- suppliers, external service dates, warranties and claim statuses, lifecycle rules;
+- reminders without duplicates, cost reporting restrictions and tenant isolation.
+
 **If you add a new migration**, run `npm run db:test:prepare` before `npm test`.
 
 HTTP checks against a running server (optional):
@@ -389,7 +411,7 @@ Run the server on the address in `BETTER_AUTH_URL` (port 3000 by default): sign-
 4. **The database checks again** — Row-Level Security on every tenant table; the app's database role cannot bypass it. The tenant is set per transaction, so pooled connections never leak it.
 5. **Everything important is audited** — append-only `audit_logs` that even the app cannot change.
 
-Details: [docs/SECURITY.md](docs/SECURITY.md) · Stage reports: [docs/STAGE-3.md](docs/STAGE-3.md), [docs/STAGE-4.md](docs/STAGE-4.md), [docs/STAGE-5.md](docs/STAGE-5.md), [docs/STAGE-6.md](docs/STAGE-6.md), [docs/STAGE-7.md](docs/STAGE-7.md).
+Details: [docs/SECURITY.md](docs/SECURITY.md) · Stage reports: [docs/STAGE-3.md](docs/STAGE-3.md), [docs/STAGE-4.md](docs/STAGE-4.md), [docs/STAGE-5.md](docs/STAGE-5.md), [docs/STAGE-6.md](docs/STAGE-6.md), [docs/STAGE-7.md](docs/STAGE-7.md), [docs/STAGE-8.md](docs/STAGE-8.md).
 
 ## Project structure
 

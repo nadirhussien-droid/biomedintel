@@ -32,6 +32,7 @@ import {
   OPEN,
   openSafetyHold,
   peopleNames,
+  releaseJobReservations,
   setAssetStatus,
   startDowntime,
   WORKER_ROLES,
@@ -800,6 +801,8 @@ export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
     });
     if (r.count === 0) throw new ValidationError("This job changed while you were signing off. Reload and try again.");
     await addEvent(tx, ctx, wo.id, "COMPLETED", { fromStatus: wo.status, toStatus: "COMPLETED", note: c.outcome });
+    // Stage 8: parts still only reserved (never issued) go back on the shelf.
+    await releaseJobReservations(tx, ctx, wo.id, "job completed");
 
     // Checklist answers: append-only; a reopened job records a new attempt.
     if (c.results.length) {
@@ -1119,6 +1122,8 @@ export async function cancelWorkOrder(ctx: AccessContext, input: unknown) {
     });
     // The device status is NOT changed automatically: someone must confirm it is safe to use.
     await addEvent(tx, ctx, wo.id, "CANCELLED", { fromStatus: wo.status, toStatus: "CANCELLED", note: data.reason });
+    // Stage 8: reserved parts go back on the shelf; issued parts stay issued until a return is recorded.
+    await releaseJobReservations(tx, ctx, wo.id, "job cancelled");
     await auditWO(tx, ctx, "workorder.cancelled", wo, { number: wo.number });
     await notify(tx, ctx, [wo.assignedToId, wo.reportedById], {
       type: "workorder.cancelled",

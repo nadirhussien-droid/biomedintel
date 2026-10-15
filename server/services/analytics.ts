@@ -1422,6 +1422,39 @@ export async function exportAnalyticsCsv(
       ),
     ];
     rows = g.withoutPlan.byCategory.length + g.exceptions.length;
+  } else if (report === "costs") {
+    const { getCostReport } = await import("./cost-analytics");
+    const c = await getCostReport(ctx, raw);
+    lines = [
+      ...head(c.period.label),
+      line([
+        "Recorded figures only. Parts cost = issued minus returned at the unit cost recorded when issued; external service = cost recorded on the supplier record. Labour is not included. Currencies are never combined.",
+      ]),
+      "",
+      line(["Part number", "Name", "Unit", "Net quantity used", "Jobs"]),
+      ...c.consumption.map((x) => line([x.part_number, x.name, x.unit, x.used, x.jobs])),
+      "",
+      line(["Written off: part number", "Name", "Units", "Reasons"]),
+      ...c.writeOffs.map((x) => line([x.part_number, x.name, x.units, x.reasons])),
+      "",
+      line([
+        "Supplier",
+        "Service requests",
+        "Completed",
+        "Open",
+        "With expected and completion dates",
+        "Completed by expected date",
+      ]),
+      ...c.supplierHistory.map((x) => line([x.name, x.requests, x.completed, x.open, x.withDates, x.onTime])),
+      ...(c.costs
+        ? [
+            "",
+            line(["Asset", "Name", "Currency", "Parts cost", "External service cost", "Total recorded"]),
+            ...c.costs.byAsset.map((x) => line([x.asset_tag, x.name, x.currency, x.parts, x.service, x.total])),
+          ]
+        : []),
+    ];
+    rows = c.consumption.length + c.writeOffs.length + c.supplierHistory.length + (c.costs?.byAsset.length ?? 0);
   } else {
     const l = await getLifecycleReport(ctx, raw);
     lines = [

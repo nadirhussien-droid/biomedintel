@@ -13,6 +13,12 @@ const ALLOWED = [
   // Stage 7: report pages and generated report snapshots (notification links).
   /^\/reports(\/(pm-compliance|work-orders|reliability|safety|governance|lifecycle|scheduled))?$/,
   new RegExp(`^/reports/scheduled/${UUID}$`, "i"),
+  /^\/reports\/costs$/,
+  // Stage 8: inventory, purchase requests and suppliers (reminder links).
+  /^\/inventory(\/(work-orders|movements|purchasing|stores|settings))?$/,
+  new RegExp(`^/inventory/(parts|purchasing)/${UUID}$`, "i"),
+  /^\/suppliers(\/(warranties|services))?$/,
+  new RegExp(`^/suppliers/${UUID}$`, "i"),
 ];
 
 export function safeNextPath(value: string | null | undefined): string | null {

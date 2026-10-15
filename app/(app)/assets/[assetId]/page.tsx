@@ -8,6 +8,11 @@ import { NotFoundError } from "@/server/authz/errors";
 import { withTenant } from "@/server/db/tenant";
 import { APPROVER_LABELS, getAsset } from "@/server/services/assets";
 import { listWorkOrdersForAsset } from "@/server/services/work-orders";
+import { getAssetLifecycle } from "@/server/services/lifecycle";
+import { getAssetWarranties } from "@/server/services/warranties";
+import { supplierOptions } from "@/server/services/suppliers";
+import { AssetLifecycle } from "@/components/stage8/asset-lifecycle";
+import { AssetWarranties } from "@/components/stage8/asset-warranties";
 import { getAssetPm } from "@/server/services/pm-schedule";
 import { DoNotUseBanner, DueStateBadge, OccurrenceBadge } from "@/components/pm/badges";
 import { formatDateOnly } from "@/lib/pm/dates";
@@ -26,7 +31,6 @@ import {
   DecommissionRequestForm,
   QuickStatusForm,
   RestoreForm,
-  WarrantyForm,
 } from "./detail-forms";
 
 export const metadata: Metadata = { title: "Equipment asset" };
@@ -38,6 +42,8 @@ const dateOnly = (iso: string | null) =>
     : "—";
 
 const SAVED: Record<string, string> = {
+  "claim-updated": "Claim updated. Its status history is kept below.",
+  disposal: "Disposal recorded. The device stays decommissioned.",
   created: "Asset registered. Its barcode label is ready to print.",
   retagged:
     "Changes saved. The asset ID changed, so its barcode changed too: print a new label and replace the old one.",
@@ -76,7 +82,13 @@ export default async function AssetDetailPage({
   const pendingRequest = asset.lifecycleEvents.find((e) => e.status === "PENDING");
   const barcode = code128(asset.assetTag);
 
-  const [workOrders, pm] = await Promise.all([listWorkOrdersForAsset(ctx, asset.id), getAssetPm(ctx, asset.id)]);
+  const [workOrders, pm, lifecycle, warranties, suppliers] = await Promise.all([
+    listWorkOrdersForAsset(ctx, asset.id),
+    getAssetPm(ctx, asset.id),
+    getAssetLifecycle(ctx, asset.id),
+    getAssetWarranties(ctx, asset.id),
+    supplierOptions(ctx),
+  ]);
   const openJobs = workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
   const serviceHistory = workOrders.filter((w) => w.status === "COMPLETED");
   const locations =
@@ -254,38 +266,19 @@ export default async function AssetDetailPage({
             </ol>
           )}
         </Card>
-
-        <Card>
-          <CardTitle>Warranties and service contracts</CardTitle>
-          {asset.warranties.length === 0 ? (
-            <p className="text-ink-muted text-sm">None recorded.</p>
-          ) : (
-            <ul className="flex flex-col gap-2 text-sm">
-              {asset.warranties.map((w) => {
-                const expired = w.endsOn < new Date().toISOString().slice(0, 10);
-                return (
-                  <li
-                    key={w.id}
-                    className="border-line flex flex-wrap items-center justify-between gap-2 border-b pb-2"
-                  >
-                    <span>
-                      <span className="font-semibold">{w.kind === "WARRANTY" ? "Warranty" : "Service contract"}</span> ·{" "}
-                      {w.provider}
-                      {w.coverage ? <span className="text-ink-muted"> · {w.coverage}</span> : null}
-                      <div className="text-ink-muted text-xs">
-                        {w.startsOn ? `${dateOnly(w.startsOn)} – ` : "Until "}
-                        {dateOnly(w.endsOn)}
-                      </div>
-                    </span>
-                    <Badge tone={expired ? "neutral" : "ok"}>{expired ? "Expired" : "Active"}</Badge>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {can(ctx, "asset.edit") && editable ? <WarrantyForm assetId={asset.id} /> : null}
-        </Card>
       </div>
+
+      <AssetLifecycle data={lifecycle} suppliers={suppliers} />
+      {warranties ? (
+        <AssetWarranties
+          data={warranties}
+          assetId={asset.id}
+          canManage={can(ctx, "warranty.manage") && can(ctx, "asset.edit") && editable}
+          canClaim={can(ctx, "warranty.claim") && !archived}
+          suppliers={suppliers}
+          jobs={workOrders.map((w) => ({ id: w.id, number: w.number }))}
+        />
+      ) : null}
 
       <Card>
         <CardTitle>Decommissioning</CardTitle>
@@ -490,11 +483,11 @@ export default async function AssetDetailPage({
       <Card>
         <CardTitle action={<Badge tone="info">Coming in later stages</Badge>}>More maintenance records</CardTitle>
         <p className="text-ink-muted text-sm">Placeholders: these will show real records once each module is built.</p>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <p className="text-ink-muted text-sm">Spare parts used are recorded on each work order.</p>
+        <ul className="grid gap-3 sm:grid-cols-3">
           {[
-            ["Calibration records", "later"],
-            ["Spare parts used", 7],
-            ["Technical documents", 8],
+            ["Calibration certificates", "later"],
+            ["Technical documents", 9],
             ["IntellAssist troubleshooting", 9],
           ].map(([label, stage]) => (
             <li key={label} className="border-line rounded-md border border-dashed p-3 text-sm">

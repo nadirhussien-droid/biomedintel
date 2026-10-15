@@ -266,3 +266,20 @@ export async function peopleNames(tx: Tx, ids: (string | null | undefined)[]): P
   }
   return out;
 }
+
+/** Called when a job is cancelled or completed: reservations go back; issued parts stay issued. */
+export async function releaseJobReservations(tx: Tx, actor: Actor, workOrderId: string, why: string) {
+  const active = await tx.partReservation.findMany({
+    where: { workOrderId, status: "ACTIVE" },
+    select: { id: true, quantity: true, part: { select: { partNumber: true } } },
+  });
+  if (!active.length) return 0;
+  await tx.partReservation.updateMany({
+    where: { id: { in: active.map((a) => a.id) }, status: "ACTIVE" },
+    data: { status: "RELEASED", closedAt: new Date(), closedById: actor.user.id },
+  });
+  await addEvent(tx, actor, workOrderId, "PARTS_RELEASED", {
+    note: `Reservations released (${why}): ${active.map((a) => `${a.quantity} × ${a.part.partNumber}`).join(", ")}. Issued parts are not returned automatically.`,
+  });
+  return active.length;
+}
