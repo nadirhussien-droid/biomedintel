@@ -362,6 +362,19 @@ model Organization {
   purchaseLines       PurchaseRequestLine[]
   externalServices    ExternalService[]
   inventorySettings   InventorySettings?
+  knowledgeDocs       KnowledgeDocument[]
+  knowledgeTargets    KnowledgeTarget[]
+  knowledgeVersions   KnowledgeVersion[]
+  knowledgeFiles      KnowledgeFile[]
+  knowledgeChunks     KnowledgeChunk[]
+  knowledgeCodes      KnowledgeErrorCode[]
+  tsSessions          TroubleshootingSession[]
+  tsCounters          TroubleshootingCounter[]
+  tsEntries           TroubleshootingEntry[]
+  aiRequests          AiRequest[]
+  aiSuggestions       AiSuggestion[]
+  aiCitations         AiCitation[]
+  aiSettings          AiSettings?
 
   @@map("organizations")
 }
@@ -380,7 +393,7 @@ model Hospital {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   departments     Department[]
   scopes          MembershipScope[]
   locations       Location[]
@@ -391,6 +404,8 @@ model Hospital {
   reportSchedules ReportSchedule[]
   stockLocations  StockLocation[]
   purchases       PurchaseRequest[]
+  knowledgeDocs   KnowledgeDocument[]
+  tsSessions      TroubleshootingSession[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id]) // target for composite foreign keys
@@ -410,13 +425,14 @@ model Department {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   // Composite FK: the hospital must belong to the SAME organisation.
-  hospital     Hospital          @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  hospital     Hospital                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
   scopes       MembershipScope[]
   locations    Location[]
   assets       Asset[]
   workOrders   WorkOrder[]
+  tsSessions   TroubleshootingSession[]
 
   @@unique([organizationId, hospitalId, code])
   @@unique([organizationId, id])
@@ -469,11 +485,12 @@ model Manufacturer {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  models       EquipmentModel[]
-  parts        Part[]
-  partCompat   PartCompatibility[]
-  suppliers    SupplierManufacturer[]
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  models           EquipmentModel[]
+  parts            Part[]
+  partCompat       PartCompatibility[]
+  suppliers        SupplierManufacturer[]
+  knowledgeTargets KnowledgeTarget[]
 
   @@unique([organizationId, id])
   @@map("manufacturers")
@@ -496,13 +513,14 @@ model EquipmentCategory {
   createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  parent        EquipmentCategory?  @relation("CategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
-  children      EquipmentCategory[] @relation("CategoryTree")
-  models        EquipmentModel[]
-  plans         MaintenancePlan[]
-  standardRules TestStandardRule[]
-  partCompat    PartCompatibility[]
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent           EquipmentCategory?  @relation("CategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
+  children         EquipmentCategory[] @relation("CategoryTree")
+  models           EquipmentModel[]
+  plans            MaintenancePlan[]
+  standardRules    TestStandardRule[]
+  partCompat       PartCompatibility[]
+  knowledgeTargets KnowledgeTarget[]
 
   @@unique([organizationId, id])
   @@map("equipment_categories")
@@ -527,12 +545,13 @@ model EquipmentModel {
   createdAt                   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  manufacturer Manufacturer        @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
-  category     EquipmentCategory   @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
-  assets       Asset[]
-  plans        MaintenancePlan[]
-  partCompat   PartCompatibility[]
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer     Manufacturer        @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+  category         EquipmentCategory   @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  assets           Asset[]
+  plans            MaintenancePlan[]
+  partCompat       PartCompatibility[]
+  knowledgeTargets KnowledgeTarget[]
 
   @@unique([organizationId, id])
   @@index([organizationId, categoryId])
@@ -578,11 +597,11 @@ model Asset {
   createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  hospital         Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
-  department       Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
-  location         Location?            @relation(fields: [organizationId, departmentId, locationId], references: [organizationId, departmentId, id], onDelete: Restrict)
-  model            EquipmentModel       @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital         Hospital                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department       Department               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  location         Location?                @relation(fields: [organizationId, departmentId, locationId], references: [organizationId, departmentId, id], onDelete: Restrict)
+  model            EquipmentModel           @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
   statusHistory    AssetStatusHistory[]
   warranties       Warranty[]
   lifecycleEvents  LifecycleEvent[]
@@ -592,9 +611,10 @@ model Asset {
   pmSchedules      PmSchedule[]
   pmOccurrences    PmOccurrence[]
   safetyHolds      SafetyHold[]
-  supplierRef      Supplier?            @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
+  supplierRef      Supplier?                @relation(fields: [organizationId, supplierId], references: [organizationId, id], onDelete: Restrict)
   warrantyClaims   WarrantyClaim[]
   externalServices ExternalService[]
+  tsSessions       TroubleshootingSession[]
 
   @@unique([organizationId, assetTag])
   @@unique([organizationId, hospitalId, inventoryNumber])
@@ -772,6 +792,7 @@ model WorkOrder {
   stockMovements   StockMovement[]
   partReservations PartReservation[]
   externalServices ExternalService[]
+  tsSessions       TroubleshootingSession[]
   warrantyClaims   WarrantyClaim[]
 
   @@unique([organizationId, number])
@@ -1971,4 +1992,451 @@ model InventorySettings {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@map("inventory_settings")
+}
+
+// ─── Stage 9: technical knowledge base (IntellKnowledge) ─────────────────────
+
+enum KnowledgeDocType {
+  SERVICE_MANUAL
+  TROUBLESHOOTING_GUIDE
+  INTERNAL_PROCEDURE
+  ERROR_CODE_REFERENCE
+  KNOWN_FAULT
+  SERVICE_BULLETIN
+  ENGINEERING_NOTE
+  OTHER_REFERENCE
+
+  @@map("knowledge_doc_type")
+}
+
+enum KnowledgeReview {
+  DRAFT
+  APPROVED
+
+  @@map("knowledge_review")
+}
+
+enum KnowledgeStatus {
+  ACTIVE
+  SUPERSEDED
+  WITHDRAWN
+
+  @@map("knowledge_status")
+}
+
+enum KnowledgeAccess {
+  /// Every role allowed to use the knowledge base (in the document's hospital, if set).
+  ENGINEERING
+  /// Organisation administrators, engineering managers and auditors only.
+  MANAGERS
+
+  @@map("knowledge_access")
+}
+
+enum IndexStatus {
+  PENDING
+  INDEXED
+  NO_TEXT
+  FAILED
+
+  @@map("index_status")
+}
+
+/// A manual, guide, procedure, bulletin or note (the logical document; Stage 2 `documents`).
+model KnowledgeDocument {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String           @map("organization_id") @db.Uuid
+  title             String
+  docType           KnowledgeDocType @map("doc_type")
+  summary           String?
+  /// Who issued it (manufacturer, standards body, the organisation itself).
+  source            String?
+  sourceReference   String?          @map("source_reference")
+  revision          String?
+  publishedOn       DateTime?        @map("published_on") @db.Date
+  reviewStatus      KnowledgeReview  @default(DRAFT) @map("review_status")
+  status            KnowledgeStatus  @default(ACTIVE)
+  accessLevel       KnowledgeAccess  @default(ENGINEERING) @map("access_level")
+  /// NULL = every hospital of the organisation.
+  hospitalId        String?          @map("hospital_id") @db.Uuid
+  /// Why the organisation may use it (licensed, supplied by the manufacturer, written in-house…).
+  authorisation     String?
+  currentVersionId  String?          @map("current_version_id") @db.Uuid
+  supersededById    String?          @map("superseded_by_id") @db.Uuid
+  reviewedById      String?          @map("reviewed_by")
+  reviewedAt        DateTime?        @map("reviewed_at") @db.Timestamptz(6)
+  reviewNote        String?          @map("review_note")
+  statusChangedById String?          @map("status_changed_by")
+  statusChangedAt   DateTime?        @map("status_changed_at") @db.Timestamptz(6)
+  statusReason      String?          @map("status_reason")
+  createdById       String           @map("created_by")
+  updatedById       String?          @map("updated_by")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital     Hospital?            @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  targets      KnowledgeTarget[]
+  versions     KnowledgeVersion[]
+  chunks       KnowledgeChunk[]
+  errorCodes   KnowledgeErrorCode[]
+  citations    AiCitation[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, docType, status])
+  @@index([organizationId, reviewStatus, status])
+  @@map("knowledge_documents")
+}
+
+/// Which equipment a document applies to: exactly one of model, category or manufacturer.
+model KnowledgeTarget {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  documentId     String  @map("document_id") @db.Uuid
+  modelId        String? @map("model_id") @db.Uuid
+  categoryId     String? @map("category_id") @db.Uuid
+  manufacturerId String? @map("manufacturer_id") @db.Uuid
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  document     KnowledgeDocument  @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Restrict)
+  model        EquipmentModel?    @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  category     EquipmentCategory? @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  manufacturer Manufacturer?      @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, documentId])
+  @@index([organizationId, modelId])
+  @@map("knowledge_targets")
+}
+
+/// Each uploaded file (or typed text) version of a document. Never edited after indexing.
+model KnowledgeVersion {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  documentId     String      @map("document_id") @db.Uuid
+  versionNo      Int         @map("version_no")
+  filename       String
+  mime           String
+  sizeBytes      Int         @map("size_bytes")
+  sha256         String
+  pageCount      Int?        @map("page_count")
+  indexStatus    IndexStatus @default(PENDING) @map("index_status")
+  indexNote      String?     @map("index_note")
+  indexedAt      DateTime?   @map("indexed_at") @db.Timestamptz(6)
+  note           String?
+  uploadedById   String      @map("uploaded_by")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  document     KnowledgeDocument @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Restrict)
+  file         KnowledgeFile?
+  chunks       KnowledgeChunk[]
+  citations    AiCitation[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, documentId, versionNo])
+  @@map("knowledge_versions")
+}
+
+/// The stored bytes of a version (kept apart so listing versions never loads files).
+model KnowledgeFile {
+  versionId      String @id @map("version_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  content        Bytes
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  version      KnowledgeVersion @relation(fields: [organizationId, versionId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, versionId])
+  @@map("knowledge_files")
+}
+
+/// Searchable passages of a version, with the pages they came from.
+model KnowledgeChunk {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  documentId     String                   @map("document_id") @db.Uuid
+  versionId      String                   @map("version_id") @db.Uuid
+  chunkNo        Int                      @map("chunk_no")
+  pageFrom       Int?                     @map("page_from")
+  pageTo         Int?                     @map("page_to")
+  heading        String?
+  content        String
+  /// Full-text search vector, generated by PostgreSQL from heading + content.
+  tsv            Unsupported("tsvector")?
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  document     KnowledgeDocument @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Restrict)
+  version      KnowledgeVersion  @relation(fields: [organizationId, versionId], references: [organizationId, id], onDelete: Restrict)
+  citations    AiCitation[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, versionId, chunkNo])
+  @@index([organizationId, documentId])
+  @@map("knowledge_chunks")
+}
+
+/// An error or alarm code and its DOCUMENTED meaning, always tied to its source document.
+model KnowledgeErrorCode {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  documentId     String    @map("document_id") @db.Uuid
+  code           String
+  /// Upper case, spaces removed: what searches match on.
+  codeKey        String    @map("code_key")
+  meaning        String
+  page           Int?
+  createdById    String    @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  document     KnowledgeDocument @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, codeKey])
+  @@index([organizationId, documentId])
+  @@map("knowledge_error_codes")
+}
+
+// ─── Stage 9: troubleshooting (IntellAssist) ─────────────────────────────────
+
+enum TroubleshootingStatus {
+  OPEN
+  RESOLVED
+  UNRESOLVED
+
+  @@map("troubleshooting_status")
+}
+
+enum TsEntryKind {
+  OBSERVATION
+  TEST
+  NOTE
+  FEEDBACK
+  ROOT_CAUSE
+  CORRECTIVE_ACTION
+  VERIFICATION
+  STATUS
+  DETAILS
+
+  @@map("ts_entry_kind")
+}
+
+enum TsResult {
+  NORMAL
+  ABNORMAL
+  INCONCLUSIVE
+
+  @@map("ts_result")
+}
+
+enum VerificationOutcome {
+  FAULT_CLEARED
+  FAULT_PERSISTS
+  NOT_VERIFIED
+
+  @@map("verification_outcome")
+}
+
+enum SuggestionFeedback {
+  PENDING
+  ACCEPTED
+  REJECTED
+  INCONCLUSIVE
+  NOT_APPLICABLE
+
+  @@map("suggestion_feedback")
+}
+
+enum EvidenceStatus {
+  SUPPORTED
+  UNVERIFIED
+
+  @@map("evidence_status")
+}
+
+enum AiRequestStatus {
+  SUCCEEDED
+  NO_SOURCES
+  DISABLED
+  RATE_LIMITED
+  TIMEOUT
+  FAILED
+  INVALID_RESPONSE
+
+  @@map("ai_request_status")
+}
+
+/// A structured troubleshooting session on one asset (and optionally one work order).
+model TroubleshootingSession {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String                @map("organization_id") @db.Uuid
+  number              String
+  assetId             String                @map("asset_id") @db.Uuid
+  workOrderId         String?               @map("work_order_id") @db.Uuid
+  /// Copied from the asset when the session starts, for scope checks.
+  hospitalId          String                @map("hospital_id") @db.Uuid
+  departmentId        String                @map("department_id") @db.Uuid
+  status              TroubleshootingStatus @default(OPEN)
+  faultDescription    String                @map("fault_description")
+  symptoms            String?
+  errorCodes          String[]              @map("error_codes")
+  alarms              String?
+  operatingConditions String?               @map("operating_conditions")
+  rootCause           String?               @map("root_cause")
+  rootCauseById       String?               @map("root_cause_by")
+  rootCauseAt         DateTime?             @map("root_cause_at") @db.Timestamptz(6)
+  correctiveAction    String?               @map("corrective_action")
+  verificationOutcome VerificationOutcome?  @map("verification_outcome")
+  verificationNote    String?               @map("verification_note")
+  startedById         String                @map("started_by")
+  closedById          String?               @map("closed_by")
+  closedAt            DateTime?             @map("closed_at") @db.Timestamptz(6)
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset                  @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?             @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  hospital     Hospital               @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department   Department             @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  entries      TroubleshootingEntry[]
+  aiRequests   AiRequest[]
+  suggestions  AiSuggestion[]
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, id])
+  @@index([organizationId, assetId, createdAt])
+  @@index([organizationId, workOrderId])
+  @@index([organizationId, status])
+  @@map("troubleshooting_sessions")
+}
+
+model TroubleshootingCounter {
+  organizationId String @map("organization_id") @db.Uuid
+  year           Int
+  lastNumber     Int    @default(0) @map("last_number")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, year])
+  @@map("troubleshooting_counters")
+}
+
+/// What happened during a session: observations, tests, feedback, conclusions. Append-only.
+model TroubleshootingEntry {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  sessionId      String      @map("session_id") @db.Uuid
+  kind           TsEntryKind
+  text           String
+  testName       String?     @map("test_name")
+  result         TsResult?
+  suggestionId   String?     @map("suggestion_id") @db.Uuid
+  authorId       String      @map("author_id")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  session      TroubleshootingSession @relation(fields: [organizationId, sessionId], references: [organizationId, id], onDelete: Restrict)
+  suggestion   AiSuggestion?          @relation(fields: [organizationId, suggestionId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, sessionId, createdAt])
+  @@map("troubleshooting_entries")
+}
+
+/// One request to the AI provider (or a refusal before calling it). Append-only.
+model AiRequest {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  sessionId         String          @map("session_id") @db.Uuid
+  requestedById     String          @map("requested_by")
+  provider          String
+  model             String?
+  promptVersion     String          @map("prompt_version")
+  status            AiRequestStatus
+  question          String
+  unverifiedAllowed Boolean         @default(false) @map("unverified_allowed")
+  retrievedChunkIds String[]        @map("retrieved_chunk_ids") @db.Uuid
+  inputTokens       Int?            @map("input_tokens")
+  outputTokens      Int?            @map("output_tokens")
+  latencyMs         Int?            @map("latency_ms")
+  errorCode         String?         @map("error_code")
+  safetyFlags       String[]        @map("safety_flags")
+  /// The validated answer as shown (missing information, questions, removed text notices).
+  answer            Json?
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  session      TroubleshootingSession @relation(fields: [organizationId, sessionId], references: [organizationId, id], onDelete: Restrict)
+  suggestions  AiSuggestion[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, requestedById, createdAt])
+  @@index([organizationId, sessionId])
+  @@map("ai_requests")
+}
+
+/// A possible cause suggested by the AI. Advisory only; the engineer records feedback.
+model AiSuggestion {
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String             @map("organization_id") @db.Uuid
+  sessionId              String             @map("session_id") @db.Uuid
+  requestId              String             @map("request_id") @db.Uuid
+  ordinal                Int
+  cause                  String
+  supportingObservations String[]           @map("supporting_observations")
+  nextSteps              String[]           @map("next_steps")
+  toolsQualifications    String[]           @map("tools_qualifications")
+  safetyNotes            String[]           @map("safety_notes")
+  confirmRuleOut         String[]           @map("confirm_rule_out")
+  evidence               EvidenceStatus
+  feedback               SuggestionFeedback @default(PENDING)
+  feedbackNote           String?            @map("feedback_note")
+  feedbackById           String?            @map("feedback_by")
+  feedbackAt             DateTime?          @map("feedback_at") @db.Timestamptz(6)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  session      TroubleshootingSession @relation(fields: [organizationId, sessionId], references: [organizationId, id], onDelete: Restrict)
+  request      AiRequest              @relation(fields: [organizationId, requestId], references: [organizationId, id], onDelete: Restrict)
+  citations    AiCitation[]
+  entries      TroubleshootingEntry[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, sessionId])
+  @@map("ai_suggestions")
+}
+
+/// A passage a suggestion cites. Only passages the server retrieved can be cited.
+model AiCitation {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  suggestionId   String @map("suggestion_id") @db.Uuid
+  chunkId        String @map("chunk_id") @db.Uuid
+  documentId     String @map("document_id") @db.Uuid
+  versionId      String @map("version_id") @db.Uuid
+  pageFrom       Int?   @map("page_from")
+  pageTo         Int?   @map("page_to")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  suggestion   AiSuggestion      @relation(fields: [organizationId, suggestionId], references: [organizationId, id], onDelete: Restrict)
+  chunk        KnowledgeChunk    @relation(fields: [organizationId, chunkId], references: [organizationId, id], onDelete: Restrict)
+  document     KnowledgeDocument @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Restrict)
+  version      KnowledgeVersion  @relation(fields: [organizationId, versionId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, suggestionId])
+  @@map("ai_citations")
+}
+
+/// Per-organisation AI switch: an Organisation Admin decides whether engineering
+/// data may be sent to the configured AI provider. Off until switched on.
+model AiSettings {
+  organizationId String    @id @map("organization_id") @db.Uuid
+  enabled        Boolean   @default(false)
+  changedById    String?   @map("changed_by")
+  changedAt      DateTime? @map("changed_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@map("ai_settings")
 }

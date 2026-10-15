@@ -13,6 +13,8 @@ import { getAssetWarranties } from "@/server/services/warranties";
 import { supplierOptions } from "@/server/services/suppliers";
 import { AssetLifecycle } from "@/components/stage8/asset-lifecycle";
 import { AssetWarranties } from "@/components/stage8/asset-warranties";
+import { sessionsFor } from "@/server/services/troubleshooting";
+import { TroubleshootingCard } from "@/components/stage9/troubleshooting-card";
 import { getAssetPm } from "@/server/services/pm-schedule";
 import { DoNotUseBanner, DueStateBadge, OccurrenceBadge } from "@/components/pm/badges";
 import { formatDateOnly } from "@/lib/pm/dates";
@@ -82,12 +84,13 @@ export default async function AssetDetailPage({
   const pendingRequest = asset.lifecycleEvents.find((e) => e.status === "PENDING");
   const barcode = code128(asset.assetTag);
 
-  const [workOrders, pm, lifecycle, warranties, suppliers] = await Promise.all([
+  const [workOrders, pm, lifecycle, warranties, suppliers, troubleshooting] = await Promise.all([
     listWorkOrdersForAsset(ctx, asset.id),
     getAssetPm(ctx, asset.id),
     getAssetLifecycle(ctx, asset.id),
     getAssetWarranties(ctx, asset.id),
     supplierOptions(ctx),
+    sessionsFor(ctx, { assetId: asset.id }),
   ]);
   const openJobs = workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
   const serviceHistory = workOrders.filter((w) => w.status === "COMPLETED");
@@ -268,6 +271,13 @@ export default async function AssetDetailPage({
         </Card>
       </div>
 
+      {troubleshooting ? (
+        <TroubleshootingCard
+          sessions={troubleshooting}
+          startHref={can(ctx, "troubleshoot.work") && editable ? `/assist/new?asset=${asset.id}` : null}
+          docsHref={can(ctx, "knowledge.view") ? `/knowledge?model=${asset.model.id}` : null}
+        />
+      ) : null}
       <AssetLifecycle data={lifecycle} suppliers={suppliers} />
       {warranties ? (
         <AssetWarranties
@@ -481,21 +491,11 @@ export default async function AssetDetailPage({
       ) : null}
 
       <Card>
-        <CardTitle action={<Badge tone="info">Coming in later stages</Badge>}>More maintenance records</CardTitle>
-        <p className="text-ink-muted text-sm">Placeholders: these will show real records once each module is built.</p>
-        <p className="text-ink-muted text-sm">Spare parts used are recorded on each work order.</p>
-        <ul className="grid gap-3 sm:grid-cols-3">
-          {[
-            ["Calibration certificates", "later"],
-            ["Technical documents", 9],
-            ["IntellAssist troubleshooting", 9],
-          ].map(([label, stage]) => (
-            <li key={label} className="border-line rounded-md border border-dashed p-3 text-sm">
-              <div className="font-semibold">{label}</div>
-              <div className="text-ink-muted text-xs">Not built yet{stage === "later" ? "" : ` · Stage ${stage}`}</div>
-            </li>
-          ))}
-        </ul>
+        <CardTitle action={<Badge tone="info">Coming in a later stage</Badge>}>Calibration certificates</CardTitle>
+        <p className="text-ink-muted text-sm">
+          Not built yet. Spare parts used are recorded on each work order; technical documents and troubleshooting
+          sessions are listed above.
+        </p>
       </Card>
 
       {asset.auditEvents ? (

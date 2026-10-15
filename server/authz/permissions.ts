@@ -182,6 +182,26 @@ export const PERMISSIONS = {
   "purchase.approve": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
   // Mark an approved request as ordered (done outside BiomedIntel.ai).
   "purchase.order": ["ENGINEERING_MANAGER", "INVENTORY_MANAGER"],
+
+  // Technical knowledge base (Stage 9, IntellKnowledge). A document's access
+  // level and hospital narrow this further (rule in the service).
+  "knowledge.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "AUDITOR"],
+  // Register documents, upload versions (always as drafts), add error codes.
+  "knowledge.contribute": ["ENGINEERING_MANAGER", "TECHNICIAN"],
+  // Approve, supersede, withdraw and re-index documents: qualified biomedical
+  // engineering staff (default for Stage 2 decision 12).
+  "knowledge.approve": ["ENGINEERING_MANAGER"],
+
+  // Troubleshooting sessions (Stage 9, IntellAssist). Scope: the asset's
+  // hospital and department. Technicians edit sessions they started or on
+  // jobs assigned to them; managers any session in scope (rule in the service).
+  "troubleshoot.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "AUDITOR"],
+  "troubleshoot.work": ["ENGINEERING_MANAGER", "TECHNICIAN"],
+  // Switch the AI provider on or off for the organisation (data leaves the
+  // application when it is on).
+  "ai.settings": ["ORG_ADMIN"],
+  // AI usage figures for the organisation.
+  "ai.usage": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
 } as const satisfies Record<string, readonly MembershipRole[]>;
 
 export type Action = keyof typeof PERMISSIONS;

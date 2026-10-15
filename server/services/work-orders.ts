@@ -308,7 +308,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
             status: true,
             serialNumber: true,
             riskClass: true,
-            model: { select: { modelName: true, manufacturer: { select: { name: true } } } },
+            model: { select: { id: true, modelName: true, manufacturer: { select: { name: true } } } },
             location: { select: { name: true } },
           },
         },

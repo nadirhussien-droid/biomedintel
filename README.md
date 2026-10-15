@@ -19,12 +19,12 @@ Preventive maintenance, testing, inventory, IntellKnowledge, IntellAssist and re
 
 ## What you need
 
-| Tool       | Version                             | Check with       |
-| ---------- | ----------------------------------- | ---------------- |
-| Node.js    | 20.19 or newer (22 LTS recommended) | `node -v`        |
-| npm        | comes with Node.js                  | `npm -v`         |
-| PostgreSQL | 16 or newer                         | `psql --version` |
-| Git        | any recent version                  | `git --version`  |
+| Tool       | Version            | Check with       |
+| ---------- | ------------------ | ---------------- |
+| Node.js    | 22.13 or newer     | `node -v`        |
+| npm        | comes with Node.js | `npm -v`         |
+| PostgreSQL | 16 or newer        | `psql --version` |
+| Git        | any recent version | `git --version`  |
 
 PostgreSQL can be installed normally ([postgresql.org/download](https://www.postgresql.org/download/)) **or** run with Docker using the included `docker-compose.yml`.
 
@@ -314,6 +314,16 @@ Full details, definitions and a step-by-step tour are in [docs/STAGE-8.md](docs/
 - **Reminders** (in-app, part of `npm run jobs:daily`): warranty/contract expiry (90/60/30 days by default), low and out-of-stock, expiring stock, overdue supplier work, purchase requests waiting, lifecycle reviews.
 
 The seed adds fictional suppliers, two stores and four parts with opening stock.
+
+## Technical knowledge and IntellAssist (Stage 9)
+
+Full details are in [docs/STAGE-9.md](docs/STAGE-9.md).
+
+- **Technical Knowledge** (`/knowledge`): upload PDF, .txt or .md documents (up to 20 MB) or type notes; documents start as **drafts** and an Engineering Manager approves them. Versions, supersede and withdraw (nothing is deleted), documented error codes, full-text search with "Open page N" links.
+- **IntellAssist** (`/assist`): troubleshooting sessions on a device or work order — facts from records, observations and tests, root cause, corrective action and verification — kept clearly apart from AI suggestions. Closing a session never changes the device or the job.
+- **AI suggestions are optional and off by default.** With `AI_PROVIDER` empty everything else works. Suggestions use only approved documents, cite pages, and are marked "Unverified" when no source supports them. `AI_PROVIDER="mock"` is a labelled test stand-in; `"anthropic"` uses the paid Claude API (key and model in `.env`, never committed).
+
+The seed adds one fictional approved document (DM-Infuse 100, error code P-110).
 
 ## Create the first Platform Super Administrator
 

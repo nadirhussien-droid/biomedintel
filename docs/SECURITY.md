@@ -191,6 +191,17 @@ The export uses the same scope and filters as the register screen, is capped at 
 - **Redirects** after actions are built only from validated UUIDs; the sign-in "return to" allow-list gained the inventory, supplier and cost report pages.
 - **Documents are not uploaded** in this stage (only a text reference), so no new file-storage surface was added.
 
+## Knowledge base and IntellAssist (Stage 9)
+
+- **Tables and RLS.** 13 new tables, RLS enabled **and forced**, composite organisation foreign keys. A manual check as the app role confirmed: no rows without a tenant context, no Coastal rows while acting as Highland, and a forged cross-organisation insert into `ai_settings` refused by the policy. Updating stored files, deleting troubleshooting entries and editing an AI suggestion's text all fail with "permission denied" (column grants and append-only triggers).
+- **Permissions:** `knowledge.view`, `knowledge.contribute` (technicians, managers), `knowledge.approve` (Engineering Managers only), `troubleshoot.view`, `troubleshoot.work`, `ai.settings` (Organisation Administrators), `ai.usage`. Technicians work only on their own sessions or their assigned jobs; only managers reopen.
+- **Document visibility.** Organisation (RLS) → hospital (one or all) → access level (managers-only documents hidden from technicians) → status (withdrawn documents hidden from non-managers). The same rule is applied in SQL for search and AI retrieval, so a passage a person cannot open is never sent to the AI on their behalf.
+- **Uploads.** Dedicated route handlers with a same-origin check (403 otherwise), a size check before the body is read, type decided from the bytes (PDF or valid UTF-8 text only), SHA-256 recorded, identical re-uploads refused. Files are served with `nosniff`, `no-store` and `Content-Security-Policy: default-src 'none'` (text also `sandbox` and always `text/plain`). The site-wide CSP is not applied to these responses so the stricter one wins. Opening and downloading are audited.
+- **Untrusted content.** Extracted text has control, bidirectional and private-use characters removed; passages are neutralised before being placed in the prompt; the model's output is validated against a fixed schema, citations are checked against what was actually retrieved, and decision wording and confidence figures are removed. The AI has no tools and no write access; nothing it returns is executed or used to change a record's status.
+- **Provider credentials.** `ANTHROPIC_API_KEY` is read only on the server, sent only in the `x-api-key` header, never logged, never stored in the database or audit log, and never returned to the browser (tested: the key does not appear in the audit entry or the settings page). Provider error bodies are not logged; only a code such as `provider_http_401` is stored.
+- **Data minimisation.** Requests contain device, fault, observation and passage text only; emails and numbers of 8+ digits are removed. Users are reminded not to enter patient information.
+- **Availability.** AI is off by default and optional; timeouts, per-user and per-organisation limits, and clear messages when unavailable. Manual troubleshooting never depends on it.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.
@@ -253,6 +264,11 @@ The export uses the same scope and filters as the register screen, is capped at 
 32. **Purchasing is a request record only.** Ordering, quotes, invoices, budgets and any approval steps beyond one second person happen outside BiomedIntel.ai.
 33. **No backorders or negative stock.** These need an explicitly approved policy before they are added.
 34. **Reminder recipients follow roles,** not a configurable list of people; supplier response times are not measured (no first-response timestamp).
+35. **The real AI provider is untested here.** The Claude adapter was tested against a local imitation of the documented API; no request has been sent to Anthropic from this environment. Test with a real key and a spend limit before any pilot.
+36. **No virus scanning or OCR for knowledge documents.** Only PDF and plain text are accepted, typed from their bytes and parsed for text only; scanned PDFs are stored but not searchable.
+37. **Redaction before AI requests is basic** (emails, long numbers). It cannot recognise every personal identifier typed into free text.
+38. **Documents are stored in the database** and grow backups; move to encrypted object storage when hosting is chosen. Retention periods for documents and AI request records are not yet decided.
+39. **AI output is checked by rules, not understood.** Decision wording and percentages are removed by pattern; an unusual phrasing could pass. Every suggestion is labelled advisory and no AI output can change a record's status.
 
 ## Backups and environments
 

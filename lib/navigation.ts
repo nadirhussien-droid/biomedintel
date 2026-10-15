@@ -54,13 +54,11 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: "/knowledge",
         label: "Technical Knowledge",
-        stage: 8,
         icon: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 19V5M8 7h7M8 11h5",
       },
       {
         href: "/assist",
         label: "IntellAssist",
-        stage: 9,
         icon: "M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5zM6.5 12.5h2.5l1.5-3 2 6 1.5-3h3.5",
       },
       { href: "/reports", label: "Reports and Analytics", icon: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" },

@@ -28,4 +28,4 @@ const run = (args: string[]) =>
 
 if (run(["prisma", "migrate", "reset", "--force"]) !== 0) process.exit(1);
 // Some Prisma versions seed automatically after a reset; --if-empty makes this a no-op then.
-process.exit(run(["tsx", "prisma/seed.ts", "--if-empty"]));
+process.exit(run(["tsx", "--conditions=react-server", "prisma/seed.ts", "--if-empty"]));

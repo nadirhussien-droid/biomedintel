@@ -19,7 +19,6 @@ const csp = [
 ].join("; ");
 
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: csp },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -30,9 +29,13 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg", "sharp"],
+  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg", "sharp", "pdfjs-dist"],
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Stored knowledge files set their own, stricter policy (see app/(app)/knowledge/files).
+      { source: "/((?!knowledge/files/).*)", headers: [{ key: "Content-Security-Policy", value: csp }] },
+    ];
   },
 };
 

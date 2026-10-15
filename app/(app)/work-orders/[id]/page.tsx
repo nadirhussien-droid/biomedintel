@@ -7,6 +7,8 @@ import { NotFoundError } from "@/server/authz/errors";
 import { getWorkOrder } from "@/server/services/work-orders";
 import { can } from "@/server/authz/access";
 import { getWorkOrderParts } from "@/server/services/work-order-parts";
+import { sessionsFor } from "@/server/services/troubleshooting";
+import { TroubleshootingCard } from "@/components/stage9/troubleshooting-card";
 import { partOptions } from "@/server/services/inventory";
 import { warrantyForAsset } from "@/server/services/warranties";
 import { listServicesForWorkOrder } from "@/server/services/external-services";
@@ -71,6 +73,7 @@ const EVENT_LABELS: Record<string, string> = {
   PARTS_RETURNED: "Parts returned to stock",
   PARTS_UNAVAILABLE: "Parts not available",
   EXTERNAL_SERVICE: "External service",
+  TROUBLESHOOTING: "Troubleshooting",
 };
 
 const SAVED: Record<string, string> = {
@@ -104,13 +107,19 @@ export default async function WorkOrderPage({
     throw error;
   });
   // Stage 8 panels (each service checks permission and scope; null = not for this role).
-  const [parts, partChoices, warranty, services, suppliers] = await Promise.all([
+  const [parts, partChoices, warranty, services, suppliers, troubleshooting] = await Promise.all([
     getWorkOrderParts(ctx, wo.id),
     can(ctx, "stock.issue") ? partOptions(ctx) : Promise.resolve([]),
     wo.type === "CORRECTIVE" ? warrantyForAsset(ctx, wo.asset.id) : Promise.resolve(null),
     listServicesForWorkOrder(ctx, wo.id),
     can(ctx, "service.manage") ? supplierOptions(ctx) : Promise.resolve([]),
+    sessionsFor(ctx, { workOrderId: wo.id }),
   ]);
+  // Technicians troubleshoot their own jobs; managers any job in scope (the service enforces this too).
+  const mayTroubleshoot =
+    can(ctx, "troubleshoot.work") &&
+    ["REQUESTED", "ASSIGNED", "IN_PROGRESS", "ON_HOLD"].includes(wo.status) &&
+    (ctx.role === "ENGINEERING_MANAGER" || wo.assignedToId === ctx.user.id);
   const hospitalToday = localToday(wo.hospital.timezone);
   const person = (uid: string | null) => (uid ? (wo.people[uid] ?? "Unknown user") : "—");
   const a = wo.allowed;
@@ -444,6 +453,13 @@ export default async function WorkOrderPage({
         </Card>
       ) : null}
 
+      {troubleshooting ? (
+        <TroubleshootingCard
+          sessions={troubleshooting}
+          startHref={mayTroubleshoot ? `/assist/new?asset=${wo.asset.id}&workOrder=${wo.id}` : null}
+          docsHref={can(ctx, "knowledge.view") ? `/knowledge?model=${wo.asset.model.id}` : null}
+        />
+      ) : null}
       {warranty ? <WarrantyPanel data={warranty} assetId={wo.asset.id} /> : null}
       {parts ? <WorkOrderParts data={parts} partOptions={partChoices} /> : null}
       {services ? (

@@ -19,6 +19,11 @@ const ALLOWED = [
   new RegExp(`^/inventory/(parts|purchasing)/${UUID}$`, "i"),
   /^\/suppliers(\/(warranties|services))?$/,
   new RegExp(`^/suppliers/${UUID}$`, "i"),
+  // Stage 9: knowledge base and troubleshooting sessions.
+  /^\/knowledge$/,
+  new RegExp(`^/knowledge/${UUID}$`, "i"),
+  /^\/assist(\/settings)?$/,
+  new RegExp(`^/assist/${UUID}$`, "i"),
 ];
 
 export function safeNextPath(value: string | null | undefined): string | null {
