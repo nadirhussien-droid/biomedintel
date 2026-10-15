@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { PrismaClient } from "../server/db/generated/client";
 import { adminClient, assertLocalDevelopmentDatabase } from "../scripts/lib/admin-db";
-import { SEED_ORGANIZATIONS } from "./seed-data";
+import { DEMO_NOTE, SEED_ASSETS, SEED_CATALOG, SEED_LOCATIONS, SEED_ORGANIZATIONS } from "./seed-data";
 
 export async function seed(db: PrismaClient, password: string, { quiet = false } = {}) {
   const log = (msg: string) => !quiet && console.log(msg);
@@ -64,9 +64,116 @@ export async function seed(db: PrismaClient, password: string, { quiet = false }
         });
       }
     }
-    log(`  ✓ ${org.name}: ${orgData.hospitals.length} hospitals, ${orgData.members.length} members`);
+    const assetCount = await seedEquipment(db, org.id, orgData.slug, hospitals, users);
+    log(
+      `  ✓ ${org.name}: ${orgData.hospitals.length} hospitals, ${orgData.members.length} members, ${assetCount} fictional assets`,
+    );
   }
   return users;
+}
+
+type HospitalMap = Map<string, { id: string; departments: Map<string, string> }>;
+
+/** Fictional equipment catalog, locations, assets and one pending decommission request. */
+async function seedEquipment(
+  db: PrismaClient,
+  organizationId: string,
+  slug: string,
+  hospitals: HospitalMap,
+  users: Map<string, string>,
+): Promise<number> {
+  const manufacturers = new Map<string, string>();
+  for (const name of SEED_CATALOG.manufacturers) {
+    const m = await db.manufacturer.create({ data: { organizationId, name } });
+    manufacturers.set(name, m.id);
+  }
+  const categories = new Map<string, string>();
+  for (const c of SEED_CATALOG.categories) {
+    const row = await db.equipmentCategory.create({
+      data: { organizationId, name: c.name, defaultRiskClass: c.risk, defaultPmIntervalMonths: c.pmMonths },
+    });
+    categories.set(c.name, row.id);
+  }
+  const models = new Map<string, string>();
+  for (const m of SEED_CATALOG.models) {
+    const row = await db.equipmentModel.create({
+      data: {
+        organizationId,
+        manufacturerId: manufacturers.get(m.manufacturer)!,
+        categoryId: categories.get(m.category)!,
+        modelName: m.name,
+        expectedLifeYears: m.lifeYears,
+      },
+    });
+    models.set(m.key, row.id);
+  }
+  const locations = new Map<string, string>();
+  for (const l of SEED_LOCATIONS[slug] ?? []) {
+    const h = hospitals.get(l.hospital)!;
+    const row = await db.location.create({
+      data: {
+        organizationId,
+        hospitalId: h.id,
+        departmentId: h.departments.get(l.department)!,
+        name: l.name,
+        floor: l.floor ?? null,
+      },
+    });
+    locations.set(l.name, row.id);
+  }
+  const assetIds = new Map<string, string>();
+  for (const a of SEED_ASSETS[slug] ?? []) {
+    const h = hospitals.get(a.hospital)!;
+    const asset = await db.asset.create({
+      data: {
+        organizationId,
+        hospitalId: h.id,
+        departmentId: h.departments.get(a.department)!,
+        locationId: a.location ? locations.get(a.location)! : null,
+        modelId: models.get(a.model)!,
+        assetTag: a.tag,
+        name: a.name,
+        serialNumber: a.serial,
+        description: DEMO_NOTE,
+        status: a.status,
+        riskClass: a.risk ?? null,
+        purchaseDate: a.purchased ? new Date(`${a.purchased}T00:00:00Z`) : null,
+        purchaseCost: a.cost?.[0] ?? null,
+        purchaseCurrency: a.cost?.[1] ?? null,
+      },
+    });
+    assetIds.set(a.tag, asset.id);
+    await db.assetStatusHistory.create({
+      data: { organizationId, assetId: asset.id, toStatus: a.status, reason: "Fictional seed data" },
+    });
+    if (a.warrantyEnds) {
+      await db.warranty.create({
+        data: {
+          organizationId,
+          assetId: asset.id,
+          kind: "WARRANTY",
+          provider: "Demo Medical Devices Co. (demo)",
+          startsOn: a.purchased ? new Date(`${a.purchased}T00:00:00Z`) : null,
+          endsOn: new Date(`${a.warrantyEnds}T00:00:00Z`),
+          coverage: "Fictional demonstration warranty",
+        },
+      });
+    }
+  }
+  // A pending decommissioning request for the Department Head / NUM to decide.
+  const amina = users.get("amina.warsame@coastal.example");
+  if (slug === "coastal-health" && amina && assetIds.has("INF-0002")) {
+    await db.lifecycleEvent.create({
+      data: {
+        organizationId,
+        assetId: assetIds.get("INF-0002")!,
+        eventType: "DECOMMISSION",
+        reason: "Fictional example: repeated pump faults, beyond economical repair.",
+        requestedById: amina,
+      },
+    });
+  }
+  return assetIds.size;
 }
 
 async function main() {

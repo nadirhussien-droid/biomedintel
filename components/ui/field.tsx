@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 const control =
@@ -25,6 +25,8 @@ export function FieldShell({ label, name, error, hint, children }: FieldShellPro
 }
 
 type InputFieldProps = InputHTMLAttributes<HTMLInputElement> & {
+  /** React 19 passes refs as an ordinary prop. */
+  ref?: Ref<HTMLInputElement>;
   label: string;
   name: string;
   error?: string[];

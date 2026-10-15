@@ -31,7 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen flex-col lg:flex-row">
       <Sidebar canAdmin={can(ctx, "admin.view")} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-line flex flex-wrap items-end justify-between gap-4 border-b bg-white px-6 py-4">
+        <header className="border-line flex flex-wrap items-end justify-between gap-4 border-b bg-white px-6 py-4 print:hidden">
           <div className="flex flex-col">
             <span className="text-ink-muted text-xs font-semibold tracking-wide uppercase">
               {ctx.organization.name}
@@ -54,8 +54,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             mfaEnabled={ctx.user.twoFactorEnabled}
           />
         </header>
-        <main className="flex flex-1 flex-col gap-6 p-6">{children}</main>
-        <footer className="border-line text-ink-muted border-t px-6 py-3 text-xs">
+        <main className="flex flex-1 flex-col gap-6 p-6 print:p-0">{children}</main>
+        <footer className="border-line text-ink-muted border-t px-6 py-3 text-xs print:hidden">
           BiomedIntel.ai · Smarter Maintenance. Safer Healthcare. · Development build — not for clinical or production
           use.
         </footer>

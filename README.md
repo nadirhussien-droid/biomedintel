@@ -4,7 +4,12 @@
 
 BiomedIntel.ai is an AI-powered CMMS (Computerized Maintenance Management System) for hospital biomedical engineering teams. It manages **medical equipment and engineering records, never patient records**.
 
-This repository is the **Stage 3 foundation**: project setup, database, secure sign-in, roles and permissions, multi-hospital tenant isolation, audit logging and the branded application shell. The equipment modules (assets, work orders, maintenance, inventory, IntellKnowledge, IntellAssist, reports) arrive in later stages.
+This repository contains:
+
+- **Stage 3 foundation:** project setup, database, secure sign-in, roles and permissions, multi-hospital tenant isolation, audit logging and the branded application shell.
+- **Stage 4 equipment register:** asset register with search, filters and paging; asset details; create/edit/archive; decommissioning with NUM approval; equipment catalog; Code 128 barcode labels, barcode scanning (handheld scanner, phone camera or typing) and printable labels; CSV export.
+
+Work orders, maintenance, inventory, IntellKnowledge, IntellAssist and reports arrive in later stages.
 
 > **Not production-ready.** It runs locally and its security foundations are tested, but it has not been security-reviewed, has no email provider, and has never been deployed. See [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -31,7 +36,7 @@ Run each command in a terminal from the project folder.
 npm install
 ```
 
-This also generates the Prisma database client. (`.npmrc` sets `legacy-peer-deps=true` because one test tool's optional peer dependency confuses npm 10.)
+This also generates the Prisma database client. (Run it again after pulling a new stage.) (`.npmrc` sets `legacy-peer-deps=true` because one test tool's optional peer dependency confuses npm 10.)
 
 **2. Create the database roles and databases**
 
@@ -87,6 +92,18 @@ npm run dev
 
 Open <http://localhost:3000>. Sign in with any seed user below and the `SEED_USER_PASSWORD` from your `.env`.
 
+## Updating an existing Stage 3 copy to Stage 4
+
+If you already ran Stage 3 on your computer:
+
+```bash
+npm install              # adds the barcode libraries (bwip-js, @zxing/browser)
+npm run db:deploy        # adds the equipment tables (4 new migrations; existing data is kept)
+npm run db:test:prepare  # same for the test database
+```
+
+If an earlier copy of this guide told you to add `APP_URL` to `.env`, you can delete that line: it is no longer used. The fictional equipment is only loaded into an **empty** development database; to get it, run `npm run db:reset` (local only — this wipes `biomedintel_dev`).
+
 ## Fictional seed users
 
 All names, hospitals and emails are invented (`.example` addresses can never receive mail).
@@ -99,12 +116,72 @@ All names, hospitals and emails are invented (`.example` addresses can never rec
 | Amina Warsame | amina.warsame@coastal.example | Coastal Health Group     | Technician                     | Riverside (all) + Northlake ICU and Theatres |
 | Grace Mwangi  | grace.mwangi@coastal.example  | Coastal Health Group     | Inventory Manager              | Riverside General                            |
 | Peter Kamau   | peter.kamau@coastal.example   | Coastal Health Group     | Department Head                | Riverside ICU                                |
+| Mary Njeri    | mary.njeri@coastal.example    | Coastal Health Group     | Department Head (Facility Mgr) | Northlake (whole hospital)                   |
 | Fatuma Hassan | fatuma.hassan@coastal.example | Coastal Health Group     | Read-only Auditor              | Whole organisation                           |
 | Lucy Achieng  | lucy.achieng@coastal.example  | Coastal Health Group     | Fault Reporter                 | Northlake Emergency                          |
 | David Mutua   | david.mutua@highland.example  | Highland Medical Network | Organization Administrator     | Whole organisation                           |
 | Sara Nakato   | sara.nakato@highland.example  | Highland Medical Network | Technician                     | Summit Regional                              |
 
 Administrators and Engineering Managers must set up an **authenticator app** (Microsoft or Google Authenticator) at first sign-in.
+
+The seed also loads **fictional demonstration equipment**: 14 assets in Coastal and 4 in Highland, with invented manufacturers and models marked "(demo)", serial numbers starting `DEMO-`, and the description "Fictional demonstration record — not a real device." Highland deliberately reuses Coastal's asset IDs and one serial number, to show that IDs are unique per organisation and serial numbers are not unique at all. One decommissioning request (INF-0002, Riverside ICU) is waiting for Peter Kamau, the NUM, to approve. Northlake has no NUMs in the demo data, so Mary Njeri (Facility Manager) or an Engineering Manager covering Northlake approves there.
+
+## The equipment register (Stage 4)
+
+Open **Equipment Assets** in the sidebar.
+
+| Task                         | Where                                                           | Who can do it                                                                                                                |
+| ---------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Search, filter, sort, page   | Register page                                                   | Everyone, but only for their own hospitals and departments                                                                   |
+| Register an asset            | **Register asset**                                              | Org Admin, Engineering Manager, Technician                                                                                   |
+| Edit an asset                | Asset page → **Edit asset**                                     | Org Admin, Engineering Manager, Technician (purchase cost: admins and managers only)                                         |
+| Change status or room        | Asset page → **Quick update**                                   | Org Admin, Engineering Manager, Technician                                                                                   |
+| Request decommissioning      | Asset page → **Decommissioning**                                | Org Admin, Engineering Manager, Technician                                                                                   |
+| Approve decommissioning      | Asset page, or the approvals box on the register                | The department's **NUM** (Department Head). If it has none: the Engineering Manager or Facility Manager. Never the requester |
+| Archive / restore            | Asset page → **Archive**                                        | Org Admin, Engineering Manager                                                                                               |
+| Find an asset by barcode     | Register → **Scan barcode** (or type it in the register search) | Everyone, but only for their own hospitals and departments                                                                   |
+| Print labels                 | Asset page → **Print label**, or tick assets in the register    | Org Admin, Engineering Manager, Technician                                                                                   |
+| Export CSV                   | Register → **Export CSV** (uses the current filters)            | Org Admin, Engineering Manager, Inventory Manager, Auditor                                                                   |
+| Manufacturers, models, rooms | Register → **Equipment catalog**                                | Add: Org Admin, Engineering Manager, Technician. Everyone can view                                                           |
+
+Nothing is ever deleted. Archived assets keep their full history and can be restored. Decommissioned assets become read-only.
+
+### Barcodes
+
+- Every asset's label carries a **Code 128 barcode of its asset ID** (e.g. `INF-0412`), with the same ID printed underneath. Nothing else is in the barcode: no database id, password, session or patient data.
+- A barcode is an identifier, not a key. Scanning finds the asset only for a signed-in person, only in the organisation they are working in, and only if the asset's hospital and department are in their access. Otherwise the answer is "No asset found that you can open", whatever the reason.
+- **Changing an asset ID changes its barcode.** The old label stops matching, the change is recorded in the audit log (`asset.barcode_replaced`), and the asset page reminds you to print a new label.
+- Scanning also accepts a hospital's own **inventory number**, so older barcode labels a hospital already has keep working.
+- Asset IDs are unique per organisation. If you work in two organisations, switch organisation at the top of the page before scanning the other organisation's equipment.
+
+### Scanning
+
+Open **Equipment Assets → Scan barcode**. There are three ways:
+
+1. **Handheld USB or Bluetooth barcode scanner** (recommended for busy workshops): most act like a keyboard. The box on the Scan page is ready as soon as it opens, so just scan; the scanner "types" the code and presses Enter. Set the scanner to send **Enter** after each scan (the factory default on most models) and to read **Code 128**.
+2. **Phone or tablet camera:** tap **Start camera**. The browser asks for camera permission only then; video stays on the device and is never uploaded. Browsers only allow the camera on **https://** sites, or on `http://localhost` on the same computer.
+3. **Typing** the asset ID or inventory number.
+
+The register's search box also finds an asset by its barcode value, so a handheld scanner works there too.
+
+### Printing labels
+
+Two formats are built in:
+
+| Format                    | Use with                                                           | Barcode size |
+| ------------------------- | ------------------------------------------------------------------ | ------------ |
+| A4 sheet, 24 labels       | 63.5 × 33.9 mm label sheets (3 × 8), on an ordinary laser printer  | 59.5 × 12 mm |
+| Label printer, 62 × 29 mm | Continuous or die-cut 62 mm label rolls (e.g. Brother QL printers) | 58 × 11 mm   |
+
+The barcode fills the label width, including the white quiet zones scanners need at each end. For a typical asset ID like `INF-0412` the narrowest bar is about 0.45 mm, comfortably above the ~0.25 mm most scanners need. Long asset IDs make thinner bars; the label page warns about any asset ID that would be too dense, so keep asset IDs short (about 12 characters or fewer).
+
+Recommendations:
+
+1. Print at **100% / Actual size**, not "Fit to page", and turn off the browser's headers and footers.
+2. Print one test sheet first and scan it with **your own handheld scanner** (and a phone, if you use the camera) before printing a batch. The labels have been checked by software, but not yet with your scanners and printers.
+3. Use a laser or thermal printer and durable (polyester or laminated) labels for equipment that is cleaned with disinfectant. Inkjet on paper smudges.
+4. Keep the white margins at both ends of the barcode clear, and stick labels on a flat, visible surface, not over a seam or curved edge. Place the barcode horizontally where a scanner can reach it.
+5. Labels show only the asset name, asset ID and, optionally, hospital and department. Serial numbers, costs and other internal details are never printed. Use **Hide hospital and department** for equipment in public areas if you prefer.
 
 ## Create the first Platform Super Administrator
 
@@ -150,7 +227,9 @@ It uses `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_NAME` from `.env`, asks for
 npm test
 ```
 
-The suite wipes and re-seeds `biomedintel_test` (it refuses any database not ending in `_test`). It covers schema constraints, Row-Level Security, cross-tenant access, pooled-connection leakage, role permissions, self-escalation, input validation, sign-in, sessions, MFA, password reset and audit records.
+The suite wipes and re-seeds `biomedintel_test` (it refuses any database not ending in `_test`). It covers schema constraints, Row-Level Security, cross-tenant access, pooled-connection leakage, role permissions, self-escalation, input validation, sign-in, sessions, MFA, password reset and audit records — and, for equipment, asset isolation between organisations, hospitals and departments, search/paging/export isolation, barcode generation, decoding and look-up, label output, field-level rules and the decommissioning approval rule.
+
+**If you add a new migration**, run `npm run db:test:prepare` before `npm test`.
 
 HTTP checks against a running server (optional):
 
@@ -164,6 +243,8 @@ E2E_BASE_URL=http://localhost:3000 E2E_PASSWORD=Test-only-password-123 npm test 
 
 (Sign-in is rate-limited to 5 attempts per minute per address, so wait a minute between repeated runs.)
 
+Run the server on the address in `BETTER_AUTH_URL` (port 3000 by default): sign-in from any other address is refused with **403** on purpose.
+
 ## How the security works (short version)
 
 1. **Sign-in** — Better Auth: passwords hashed with scrypt, HTTP-only session cookies, 12-hour sessions, no public sign-up, rate limiting, MFA for privileged roles.
@@ -172,7 +253,7 @@ E2E_BASE_URL=http://localhost:3000 E2E_PASSWORD=Test-only-password-123 npm test 
 4. **The database checks again** — Row-Level Security on every tenant table; the app's database role cannot bypass it. The tenant is set per transaction, so pooled connections never leak it.
 5. **Everything important is audited** — append-only `audit_logs` that even the app cannot change.
 
-Details: [docs/SECURITY.md](docs/SECURITY.md) · Architecture and stage report: [docs/STAGE-3.md](docs/STAGE-3.md).
+Details: [docs/SECURITY.md](docs/SECURITY.md) · Stage reports: [docs/STAGE-3.md](docs/STAGE-3.md), [docs/STAGE-4.md](docs/STAGE-4.md).
 
 ## Project structure
 
@@ -181,6 +262,7 @@ app/                    Pages (Next.js App Router)
   (auth)/               Sign-in, MFA code, forgot/reset password (public)
   (account)/            Account security (MFA setup), no-access, platform admin
   (app)/                The signed-in app: dashboard, admin, settings, module placeholders
+    assets/             Equipment register, asset pages, catalog, labels, scanner, CSV export
   api/auth/[...all]/    Better Auth endpoints
 components/             UI building blocks (ui/) and the app shell (shell/)
 lib/                    Shared client-safe code: validation schemas, navigation, auth client
@@ -189,7 +271,8 @@ server/                 Server-only code — never sent to the browser
   authz/                Roles, permission table, access resolution, errors
   audit/                Audit logging
   db/                   Prisma client, withTenant() transactions, generated client
-  services/             Business rules (organisation admin, platform, dashboard)
+  services/             Business rules (organisation admin, platform, dashboard, assets, equipment catalog)
+  barcode.ts            Code 128 barcode generation for labels
   actions/              Shared result handling for server actions
 prisma/                 schema.prisma, migrations, seed
 scripts/                Bootstrap admin, database setup/reset helpers
@@ -200,17 +283,22 @@ instrumentation.ts      Start-up checks (config, database role)
 
 ## Troubleshooting
 
-| Problem                                                          | Fix                                                                                                     |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `BiomedIntel.ai configuration error` at start                    | A variable in `.env` is missing or invalid; the message names it.                                       |
-| `DATABASE_URL connects as … which can bypass Row-Level Security` | `DATABASE_URL` must use `biomedintel_app`, not the owner or `postgres`.                                 |
-| `password authentication failed for user …`                      | The password in your `.env` URL does not match `setup-local.sql` (or Docker).                           |
-| `database "biomedintel_dev" does not exist`                      | Run step 2 again.                                                                                       |
-| `The test database is missing migrations`                        | `npm run db:test:prepare`                                                                               |
-| `relation "…" does not exist`                                    | Migrations not applied: `npm run db:deploy`.                                                            |
-| Sign-in says "Too many attempts"                                 | Rate limiting: wait one minute.                                                                         |
-| Seed says organisations already exist                            | `npm run db:reset` (local only) for a clean database.                                                   |
-| An admin is sent to "Account security"                           | Expected: privileged roles must set up an authenticator app first.                                      |
-| `npm install` fails with `edgesOut`                              | Make sure `.npmrc` (with `legacy-peer-deps=true`) is in the project folder.                             |
-| Forgot-password emails do not arrive                             | There is no email provider yet. In development the reset link is printed in the `npm run dev` terminal. |
-| Prisma cannot download its engine                                | Check your internet connection or proxy; Prisma downloads its schema engine on first use.               |
+| Problem                                                          | Fix                                                                                                                   |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `BiomedIntel.ai configuration error` at start                    | A variable in `.env` is missing or invalid; the message names it.                                                     |
+| `DATABASE_URL connects as … which can bypass Row-Level Security` | `DATABASE_URL` must use `biomedintel_app`, not the owner or `postgres`.                                               |
+| `password authentication failed for user …`                      | The password in your `.env` URL does not match `setup-local.sql` (or Docker).                                         |
+| `database "biomedintel_dev" does not exist`                      | Run step 2 again.                                                                                                     |
+| `The test database is missing migrations`                        | `npm run db:test:prepare`                                                                                             |
+| `relation "…" does not exist`                                    | Migrations not applied: `npm run db:deploy`.                                                                          |
+| Sign-in says "Too many attempts"                                 | Rate limiting: wait one minute.                                                                                       |
+| Seed says organisations already exist                            | `npm run db:reset` (local only) for a clean database.                                                                 |
+| An admin is sent to "Account security"                           | Expected: privileged roles must set up an authenticator app first.                                                    |
+| `npm install` fails with `edgesOut`                              | Make sure `.npmrc` (with `legacy-peer-deps=true`) is in the project folder.                                           |
+| Forgot-password emails do not arrive                             | There is no email provider yet. In development the reset link is printed in the `npm run dev` terminal.               |
+| Prisma cannot download its engine                                | Check your internet connection or proxy; Prisma downloads its schema engine on first use.                             |
+| "Start camera" says camera scanning needs a secure connection    | Browsers allow cameras only on https:// or on localhost. Type the asset ID, or use an https address.                  |
+| The camera starts but nothing happens                            | Hold the barcode flat and horizontal, 10–20 cm away in good light, filling most of the frame. Reprint damaged labels. |
+| A scan says "No asset found that you can open"                   | Not your hospital/department, a label from before an asset ID change, or another organisation's equipment.            |
+| A handheld scanner types but nothing happens                     | Set the scanner to send Enter after each scan, and to read Code 128.                                                  |
+| Printed barcodes are too small or cut off                        | Print at 100% / Actual size, not "Fit to page"; check the label format matches your label stock.                      |

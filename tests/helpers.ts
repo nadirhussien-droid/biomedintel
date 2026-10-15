@@ -63,3 +63,50 @@ export async function auditCount(where: {
 export function uniqueCode(prefix: string): string {
   return `${prefix}${Math.floor(Math.random() * 1e6)}`.toUpperCase().slice(0, 16);
 }
+
+// ─── Equipment (Stage 4) ─────────────────────────────────────────────────────
+
+export async function assetId(orgSlug: string, tag: string): Promise<string> {
+  const org = await orgId(orgSlug);
+  return (await owner.asset.findFirstOrThrow({ where: { organizationId: org, assetTag: tag } })).id;
+}
+
+export async function assetRow(orgSlug: string, tag: string) {
+  const org = await orgId(orgSlug);
+  return owner.asset.findFirstOrThrow({ where: { organizationId: org, assetTag: tag } });
+}
+
+export async function modelId(orgSlug: string, modelName: string): Promise<string> {
+  const org = await orgId(orgSlug);
+  return (await owner.equipmentModel.findFirstOrThrow({ where: { organizationId: org, modelName } })).id;
+}
+
+export async function locationId(orgSlug: string, name: string): Promise<string> {
+  const org = await orgId(orgSlug);
+  return (await owner.location.findFirstOrThrow({ where: { organizationId: org, name } })).id;
+}
+
+/** A valid "register asset" form for Coastal, Riverside General, ICU. */
+export async function coastalAssetInput(overrides: Record<string, unknown> = {}) {
+  return {
+    name: "Test infusion pump",
+    assetTag: uniqueCode("T-"),
+    modelId: await modelId("coastal-health", "DM-Infuse 100"),
+    hospitalId: await hospitalId("coastal-health", "RGH"),
+    departmentId: await departmentId("coastal-health", "RGH", "ICU"),
+    locationId: "",
+    serialNumber: `TEST-${uniqueCode("SN")}`,
+    inventoryNumber: "",
+    supplier: "",
+    description: "",
+    status: "IN_SERVICE",
+    riskClass: "HIGH",
+    purchaseDate: "",
+    commissionedAt: "",
+    eolDate: "",
+    purchaseCost: null,
+    purchaseCurrency: null,
+    confirmDuplicateSerial: false,
+    ...overrides,
+  };
+}

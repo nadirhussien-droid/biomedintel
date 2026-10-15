@@ -26,9 +26,9 @@ describe("permission matrix", () => {
     expect(roleCan("AUDITOR", "audit.view")).toBe(true);
   });
 
-  it("fault reporters can only see the dashboard and their hospitals", () => {
+  it("fault reporters can only see the dashboard, their hospitals and the assets in their scope", () => {
     const allowed = (Object.keys(PERMISSIONS) as Action[]).filter((a) => roleCan("FAULT_REPORTER", a));
-    expect(allowed.sort()).toEqual(["dashboard.view", "hospital.view"]);
+    expect(allowed.sort()).toEqual(["asset.view", "dashboard.view", "hospital.view"]);
   });
 
   it("denies unknown actions by default", () => {

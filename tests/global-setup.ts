@@ -39,7 +39,8 @@ export default async function setup() {
     // never for the application role, and only in this _test database.
     await db.$executeRawUnsafe(`
       ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate;
-      TRUNCATE audit_logs, membership_scopes, memberships, departments, hospitals, organizations,
+      TRUNCATE audit_logs, lifecycle_events, warranties, asset_status_history, assets, locations,
+               equipment_models, equipment_categories, manufacturers, membership_scopes, memberships, departments, hospitals, organizations,
                auth_two_factors, auth_sessions, auth_accounts, auth_verifications, users;
       ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate;`);
     await seed(db, TEST_PASSWORD, { quiet: true });

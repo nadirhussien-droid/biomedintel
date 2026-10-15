@@ -1,9 +1,10 @@
-// BiomedIntel.ai — foundational database schema (Stage 3)
+// BiomedIntel.ai — database schema
 //
-// Source of truth: Stage 2 Technical Blueprint, section 4. This file implements
-// only the tables Stage 3 needs: tenancy, people and access, authentication and
-// audit. Equipment, maintenance, inventory, documents and AI tables come in
-// later stages.
+// Source of truth: Stage 2 Technical Blueprint, section 4.
+//   Stage 3: tenancy, people and access, authentication and audit.
+//   Stage 4: equipment — locations, manufacturers, categories, models, assets,
+//            asset status history and warranties.
+// Maintenance, inventory, documents and AI tables come in later stages.
 //
 // Rules that apply to every tenant table (see prisma/migrations/*_security):
 //   • `organization_id` on every row, with Row-Level Security (RLS) policies.
@@ -27,13 +28,13 @@ datasource db {
 /// The Platform Super Administrator is NOT a membership role; it lives on the
 /// user record (`platform_role`) and is set only by the bootstrap script.
 enum MembershipRole {
-  ORG_ADMIN           // 2. Hospital Organization Administrator
+  ORG_ADMIN // 2. Hospital Organization Administrator
   ENGINEERING_MANAGER // 3. Hospital Biomedical Engineering Manager
-  TECHNICIAN          // 4. Biomedical Engineer or Technician
-  INVENTORY_MANAGER   // 5. Inventory Manager
-  DEPARTMENT_HEAD     // 6. Department Head or Facility Manager
-  AUDITOR             // 7. Read-only Auditor or Executive
-  FAULT_REPORTER      // 8. Fault Reporter (nurses and ward staff)
+  TECHNICIAN // 4. Biomedical Engineer or Technician
+  INVENTORY_MANAGER // 5. Inventory Manager
+  DEPARTMENT_HEAD // 6. Department Head or Facility Manager
+  AUDITOR // 7. Read-only Auditor or Executive
+  FAULT_REPORTER // 8. Fault Reporter (nurses and ward staff)
 
   @@map("membership_role")
 }
@@ -61,6 +62,51 @@ enum MembershipStatus {
   @@map("membership_status")
 }
 
+/// Operational status of a device (Stage 2 definitions). Archiving is separate
+/// (`archived_at`): an archived asset keeps its last operational status.
+enum AssetStatus {
+  IN_SERVICE
+  UNDER_REPAIR // shown as "Under repair / maintenance"
+  OUT_OF_SERVICE
+  DECOMMISSIONED
+
+  @@map("asset_status")
+}
+
+/// Organisation-assigned maintenance risk category (Stage 2 `risk_class`).
+/// Not a regulatory device class; NULL means "not assessed".
+enum RiskClass {
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("risk_class")
+}
+
+enum WarrantyKind {
+  WARRANTY
+  SERVICE_CONTRACT
+
+  @@map("warranty_kind")
+}
+
+/// Stage 2 lifecycle_events. Stage 4 uses DECOMMISSION (request + NUM approval);
+/// commissioning, EOL flags and disposal arrive with the lifecycle module.
+enum LifecycleEventType {
+  DECOMMISSION
+
+  @@map("lifecycle_event_type")
+}
+
+enum LifecycleEventStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@map("lifecycle_event_status")
+}
+
 enum AuditOutcome {
   SUCCESS
   DENIED
@@ -82,10 +128,18 @@ model Organization {
   createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  hospitals        Hospital[]
-  departments      Department[]
-  memberships      Membership[]
-  membershipScopes MembershipScope[]
+  hospitals           Hospital[]
+  departments         Department[]
+  memberships         Membership[]
+  membershipScopes    MembershipScope[]
+  locations           Location[]
+  manufacturers       Manufacturer[]
+  equipmentCategories EquipmentCategory[]
+  equipmentModels     EquipmentModel[]
+  assets              Asset[]
+  assetStatusHistory  AssetStatusHistory[]
+  warranties          Warranty[]
+  lifecycleEvents     LifecycleEvent[]
 
   @@map("organizations")
 }
@@ -105,6 +159,8 @@ model Hospital {
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   departments  Department[]
   scopes       MembershipScope[]
+  locations    Location[]
+  assets       Asset[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id]) // target for composite foreign keys
@@ -128,12 +184,230 @@ model Department {
   // Composite FK: the hospital must belong to the SAME organisation.
   hospital     Hospital          @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
   scopes       MembershipScope[]
+  locations    Location[]
+  assets       Asset[]
 
   @@unique([organizationId, hospitalId, code])
   @@unique([organizationId, id])
   @@unique([organizationId, hospitalId, id])
   @@index([organizationId, hospitalId, status])
   @@map("departments")
+}
+
+// ─── Equipment (Stage 4) ─────────────────────────────────────────────────────
+// Case-insensitive uniqueness rules (lower(name)), format checks and
+// Row-Level Security live in the hand-written *_equipment_security migration.
+
+/// A room, bay or store inside a department, e.g. "ICU Bay 3".
+model Location {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  hospitalId     String       @map("hospital_id") @db.Uuid
+  departmentId   String       @map("department_id") @db.Uuid
+  name           String
+  building       String?
+  floor          String?
+  status         RecordStatus @default(ACTIVE)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById    String?      @map("created_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital     Hospital     @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  // The department must belong to the same organisation AND hospital.
+  department   Department   @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  assets       Asset[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, departmentId, id]) // lets an asset's location be forced into the asset's department
+  @@index([organizationId, departmentId])
+  @@map("locations")
+}
+
+/// A maker of equipment. One list per organisation.
+model Manufacturer {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  country        String?      @db.Char(2)
+  supportContact String?      @map("support_contact")
+  status         RecordStatus @default(ACTIVE)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById    String?      @map("created_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  models       EquipmentModel[]
+
+  @@unique([organizationId, id])
+  @@map("manufacturers")
+}
+
+/// A device type, e.g. "Infusion pump".
+model EquipmentCategory {
+  id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId          String       @map("organization_id") @db.Uuid
+  name                    String
+  parentId                String?      @map("parent_id") @db.Uuid
+  defaultRiskClass        RiskClass?   @map("default_risk_class")
+  defaultPmIntervalMonths Int?         @map("default_pm_interval_months")
+  status                  RecordStatus @default(ACTIVE)
+  archivedAt              DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById             String?      @map("created_by")
+  createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent       EquipmentCategory?  @relation("CategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
+  children     EquipmentCategory[] @relation("CategoryTree")
+  models       EquipmentModel[]
+
+  @@unique([organizationId, id])
+  @@map("equipment_categories")
+}
+
+/// A make and model, e.g. manufacturer X, model "IP-200".
+model EquipmentModel {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String       @map("organization_id") @db.Uuid
+  manufacturerId    String       @map("manufacturer_id") @db.Uuid
+  categoryId        String       @map("category_id") @db.Uuid
+  modelName         String       @map("model_name")
+  expectedLifeYears Int?         @map("expected_life_years")
+  status            RecordStatus @default(ACTIVE)
+  archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById       String?      @map("created_by")
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  manufacturer Manufacturer      @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
+  category     EquipmentCategory @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  assets       Asset[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, categoryId])
+  @@map("equipment_models")
+}
+
+/// One physical medical device. Never hard-deleted: archived instead, so its
+/// history (and later its work orders and test records) is kept.
+model Asset {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String      @map("organization_id") @db.Uuid
+  hospitalId       String      @map("hospital_id") @db.Uuid
+  departmentId     String      @map("department_id") @db.Uuid
+  locationId       String?     @map("location_id") @db.Uuid
+  modelId          String      @map("model_id") @db.Uuid
+  /// Human-readable BiomedIntel.ai asset ID, e.g. "INF-0412". Unique per organisation.
+  /// Printed on labels as text and as a Code 128 barcode.
+  assetTag         String      @map("asset_tag")
+  name             String
+  /// Not unique: manufacturers reuse serial numbers across models and lines.
+  serialNumber     String?     @map("serial_number")
+  /// The hospital's own asset/inventory number, unique per hospital when present.
+  inventoryNumber  String?     @map("inventory_number")
+  description      String?
+  supplier         String?
+  status           AssetStatus @default(IN_SERVICE)
+  riskClass        RiskClass?  @map("risk_class")
+  purchaseDate     DateTime?   @map("purchase_date") @db.Date
+  commissionedAt   DateTime?   @map("commissioned_at") @db.Date
+  purchaseCost     Decimal?    @map("purchase_cost") @db.Decimal(14, 2)
+  purchaseCurrency String?     @map("purchase_currency") @db.Char(3)
+  eolDate          DateTime?   @map("eol_date") @db.Date
+  archivedAt       DateTime?   @map("archived_at") @db.Timestamptz(6)
+  archivedById     String?     @map("archived_by")
+  createdById      String?     @map("created_by")
+  updatedById      String?     @map("updated_by")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital        Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department      Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  location        Location?            @relation(fields: [organizationId, departmentId, locationId], references: [organizationId, departmentId, id], onDelete: Restrict)
+  model           EquipmentModel       @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  statusHistory   AssetStatusHistory[]
+  warranties      Warranty[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@unique([organizationId, assetTag])
+  @@unique([organizationId, hospitalId, inventoryNumber])
+  @@unique([organizationId, id])
+  @@index([organizationId, hospitalId, departmentId, status])
+  @@index([organizationId, modelId])
+  @@index([organizationId, updatedAt(sort: Desc)])
+  @@map("assets")
+}
+
+/// Every operational status change, for uptime reporting. Append-only.
+model AssetStatusHistory {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  assetId        String       @map("asset_id") @db.Uuid
+  fromStatus     AssetStatus? @map("from_status")
+  toStatus       AssetStatus  @map("to_status")
+  reason         String?
+  changedById    String?      @map("changed_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, assetId, createdAt])
+  @@map("asset_status_history")
+}
+
+/// A warranty or service contract for one asset.
+model Warranty {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  assetId        String       @map("asset_id") @db.Uuid
+  kind           WarrantyKind @default(WARRANTY)
+  provider       String
+  startsOn       DateTime?    @map("starts_on") @db.Date
+  endsOn         DateTime     @map("ends_on") @db.Date
+  coverage       String?
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdById    String?      @map("created_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, endsOn])
+  @@index([organizationId, assetId])
+  @@map("warranties")
+}
+
+/// A lifecycle request and its decision. For DECOMMISSION: requested by a
+/// technician, manager or admin; approved or rejected by the Department Head
+/// (NUM) of the asset's department; never by the requester.
+model LifecycleEvent {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  assetId        String               @map("asset_id") @db.Uuid
+  eventType      LifecycleEventType   @map("event_type")
+  status         LifecycleEventStatus @default(PENDING)
+  reason         String
+  effectiveOn    DateTime?            @map("effective_on") @db.Date
+  requestedById  String               @map("requested_by")
+  decidedById    String?              @map("decided_by")
+  decidedAt      DateTime?            @map("decided_at") @db.Timestamptz(6)
+  decisionNote   String?              @map("decision_note")
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset        @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, assetId, eventType])
+  @@index([organizationId, status])
+  @@map("lifecycle_events")
 }
 
 // ─── People and access ───────────────────────────────────────────────────────
@@ -198,7 +472,7 @@ model AuditLog {
   outcome        AuditOutcome @default(SUCCESS)
   entityType     String?      @map("entity_type")
   entityId       String?      @map("entity_id")
-  metadata       Json?        // small, non-sensitive details; never passwords or tokens
+  metadata       Json? // small, non-sensitive details; never passwords or tokens
   ipAddress      String?      @map("ip_address")
   userAgent      String?      @map("user_agent")
   requestId      String?      @map("request_id")
@@ -216,17 +490,17 @@ model AuditLog {
 // reaches them only through Better Auth and the access-resolution code.
 
 model User {
-  id               String    @id
+  id               String   @id
   name             String
-  email            String    @unique
-  emailVerified    Boolean   @default(false) @map("email_verified")
+  email            String   @unique
+  emailVerified    Boolean  @default(false) @map("email_verified")
   image            String?
-  twoFactorEnabled Boolean?  @default(false) @map("two_factor_enabled")
+  twoFactorEnabled Boolean? @default(false) @map("two_factor_enabled")
   /// "SUPER_ADMIN" for the Platform Super Administrator, otherwise NULL.
   /// Set only by `npm run admin:bootstrap`; users can never set it themselves.
-  platformRole     String?   @map("platform_role")
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  platformRole     String?  @map("platform_role")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   sessions    Session[]
   accounts    Account[]

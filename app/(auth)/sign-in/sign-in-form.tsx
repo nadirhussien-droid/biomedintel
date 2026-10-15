@@ -7,7 +7,7 @@ import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { InputField } from "@/components/ui/field";
 
-export function SignInForm() {
+export function SignInForm({ next = null }: { next?: string | null }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -31,10 +31,10 @@ export function SignInForm() {
     }
     // Accounts with MFA get a second step before a session exists.
     if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
-      router.push("/sign-in/verify");
+      router.push(next ? `/sign-in/verify?next=${encodeURIComponent(next)}` : "/sign-in/verify");
       return;
     }
-    router.replace("/dashboard");
+    router.replace(next ?? "/dashboard");
     router.refresh();
   }
 

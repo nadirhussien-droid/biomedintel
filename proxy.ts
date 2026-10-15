@@ -8,6 +8,7 @@
 // server in requireAccess() (server/auth/session.ts) for every page and action.
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { safeNextPath } from "./lib/safe-next";
 
 const PUBLIC_PATHS = ["/sign-in", "/forgot-password", "/reset-password", "/api/auth"];
 
@@ -23,6 +24,10 @@ export function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
     url.search = "";
+    // A link to an asset page (or the scan page) is remembered so the person
+    // lands on it after signing in. Nothing about the asset is shown before.
+    const next = safeNextPath(pathname);
+    if (next) url.searchParams.set("next", next);
     const response = NextResponse.redirect(url);
     response.headers.set("x-request-id", requestId);
     return response;

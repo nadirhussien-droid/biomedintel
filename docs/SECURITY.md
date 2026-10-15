@@ -1,4 +1,4 @@
-# BiomedIntel.ai — security foundation (Stage 3)
+# BiomedIntel.ai — security (Stages 3 and 4)
 
 This describes what is in place, how it works, and what is **not** done yet. Technical safeguards are not the same as regulatory compliance or certification; BiomedIntel.ai makes no compliance claim.
 
@@ -33,6 +33,48 @@ The app refuses to start (`instrumentation.ts`) if `DATABASE_URL` uses a role th
 ### Platform Super Administrator
 
 Created only by `npm run admin:bootstrap` (owner credentials, refuses if one exists). The app role cannot set `platform_role` (column-level grants + check constraint). A platform administrator can create organisations but gets **no access to hospital data** unless also given a membership. Note: RLS cannot distinguish a platform administrator acting with a chosen organisation context from a member; this boundary is enforced in server code (`resolveAccess` requires a membership).
+
+## Equipment records (Stage 4)
+
+The same layers protect equipment. Specifically:
+
+- **Scope on every asset action.** Every asset query is filtered by the user's hospitals and departments (`assetScopeWhere`). Viewing, editing, scanning, labels, export and approvals all use it. Searching, filtering, sorting and paging happen in the database after this filter, so no query-string value can widen it. Sort fields are an allow-list.
+- **Row-Level Security** is enabled and forced on all eight equipment tables (`locations`, `manufacturers`, `equipment_categories`, `equipment_models`, `assets`, `asset_status_history`, `warranties`, `lifecycle_events`).
+- **Composite foreign keys** stop an asset pointing at another organisation's hospital, department, model or room. They also stop a room belonging to a different department from the asset's own.
+- **No deletion.** The app role has no DELETE on any equipment table, so assets are archived instead. It also cannot UPDATE `organization_id` or `created_by`, and `asset_status_history` is append-only (a trigger rejects changes, even from the owner).
+- **"Not found" for everything unauthorised.** A guessed id, another organisation's asset, or an out-of-scope asset all return the same "not found". Each attempt is audited as `asset.access_denied`.
+- **Duplicate checks never cross tenants.** Asset IDs are unique per organisation and checked under RLS, so another organisation's IDs can neither clash nor be discovered. The serial-number warning does not reveal which asset matched.
+- **Field-level rules.**
+  - Purchase cost is visible only to admins, managers and auditors, and editable only by admins and managers.
+  - "Decommissioned" cannot be set directly; it requires an approved request.
+  - The approver must be the department's NUM. Only when there is no NUM can the Engineering Manager or Facility Manager approve. Never the requester (also enforced by a database CHECK constraint).
+- **Optimistic locking.** An edit form carries the record's `updated_at`; a save fails if someone else saved in between.
+
+### Barcodes (Code 128)
+
+Labels carried QR codes in the first Stage 4 build. On 15 October 2026 they were replaced with Code 128 barcodes at Nadir's request. Migration `20261015000000_barcode_labels` removed the random QR columns and the QR look-up function; no asset record, asset ID, permission or audit row was removed.
+
+- **Content.** The barcode holds only the asset ID (e.g. `INF-0412`), which is also printed as text on the label. There are no credentials, sessions, keys, database ids, patient data or other equipment details.
+- **The barcode is not a credential.**
+  - Look-up happens only inside the signed-in app (Scan page or register search). There is no public link route.
+  - It searches only the organisation the user is working in (RLS), first by asset ID and then by the hospital inventory number.
+  - The result is checked against the user's hospital/department scope like any other access.
+  - Unknown codes and out-of-scope assets give the same "No asset found that you can open"; out-of-scope attempts are audited as `asset.access_denied`.
+- **Accepted trade-off.** An asset ID is human-readable and can be guessed, unlike the random QR code it replaces. That is acceptable because it grants nothing on its own; it is already printed on the label; and all access goes through sign-in, organisation and scope checks. Equipment details stay behind sign-in.
+- **Scanner safety.**
+  - Scanned or typed text is untrusted. It is accepted only as a short plain code (no links, no `javascript:` or `data:`, no control characters, at most 40 characters) and is checked again on the server.
+  - The browser only navigates to an in-app `/assets/<id>` address that the server built from the asset's id, never to the scanned text.
+  - The camera is optional and requested only when the user taps "Start camera". `Permissions-Policy` allows the camera for this site only (`camera=(self)`). Handheld scanners need no browser permission at all.
+- **Signed-out visitors** to an asset page are sent to sign-in. Only the asset page address is remembered (`?next=`), and only addresses matching a strict allow-list are accepted, so there is no open redirect.
+- **Barcode changes are audited.** `asset.barcode_issued` is recorded when an asset is registered. `asset.barcode_replaced` (old and new ID) is recorded when its asset ID changes, because old labels then no longer match.
+
+### Audit events added in Stage 4
+
+`asset.created`, `asset.barcode_issued`, `asset.updated` (changed field names only, never a copy of the record or the cost), `asset.reassigned`, `asset.status_changed`, `asset.risk_changed`, `asset.location_changed`, `asset.archived`, `asset.restored`, `asset.barcode_replaced`, `asset.scanned` (with `matchedBy`), `asset.access_denied`, `asset.label_printed`, `asset.exported`, `asset.warranty_added`, `asset.decommission_requested`, `asset.decommissioned` (with `approvedAs`), `asset.decommission_rejected`, `asset.decommission_cancelled`, `manufacturer.created`, `equipment_category.created`, `equipment_model.created`, `location.created`, and `authz.denied` for refused actions. (`asset.qr_issued`, `asset.qr_reissued` and `asset.scan_denied` appear only in history from the first, QR-based Stage 4 build.)
+
+### CSV export
+
+The export uses the same scope and filters as the register screen, is capped at 5,000 rows, and is audited. Cells beginning with `= + - @` are prefixed with `'` so spreadsheet programs do not run them as formulas (CSV injection).
 
 ## Authentication
 
@@ -72,6 +114,11 @@ Created only by `npm run admin:bootstrap` (owner credentials, refuses if one exi
 8. **No data retention or deletion jobs** yet; retention periods are still an open decision.
 9. **No backups configured** — there is no deployed database yet (see below).
 10. **Platform administration is minimal** (create and list organisations only).
+11. **Printed labels are visible to anyone nearby.** They carry only the asset name and ID (and optionally hospital and department). The barcode opens nothing without a permitted account, but anyone can read the asset ID from it, just as from the printed text.
+12. **"Label printed" means the label page was opened.** The browser cannot confirm that anything was physically printed.
+13. **Duplicate asset IDs are revealed within an organisation.** To keep IDs unique, a user can learn that an ID already exists in their own organisation, even in a hospital they cannot see. No other details are revealed.
+14. **The approval rule depends on correct memberships.** If a NUM account is missing or wrongly scoped, the fallback approvers (Engineering Manager, Facility Manager) can decide. Keep Department Head scopes accurate.
+15. **No virus scanning, attachments or documents yet** (Stage 8).
 
 ## Backups and environments
 

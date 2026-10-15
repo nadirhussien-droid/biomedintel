@@ -30,7 +30,7 @@ export function Sidebar({ canAdmin }: { canAdmin: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="bg-navy-900 text-white lg:w-68 lg:shrink-0">
+    <div className="bg-navy-900 text-white lg:w-68 lg:shrink-0 print:hidden">
       <nav aria-label="Main navigation" className="lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4">
           <Link href="/dashboard" aria-label="BiomedIntel.ai dashboard">
