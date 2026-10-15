@@ -1,4 +1,4 @@
-# BiomedIntel.ai — security (Stages 3 and 4)
+# BiomedIntel.ai — security (Stages 3 to 7)
 
 This describes what is in place, how it works, and what is **not** done yet. Technical safeguards are not the same as regulatory compliance or certification; BiomedIntel.ai makes no compliance claim.
 
@@ -161,6 +161,23 @@ The export uses the same scope and filters as the register screen, is capped at 
   - `standard.created`, `standard.verified`, `standard.archived`, `standard.rule_set`, `standard.rule_removed`, `catalog.manufacturer_interval_set`;
   - `safety.hold_placed`, `safety.hold_failure_added`, `safety.retest_created`, `safety.retest_passed`, `safety.retest_failed`, `safety.hold_released`, `safety.release_rejected`, `safety.access_denied`.
 
+## Reports and analytics (Stage 7)
+
+- **Read-only.** Analytics services only read. The only writes are audit events (exports, financial views, schedule changes) and scheduled-report snapshots and notifications. A walk-through check confirms viewing and exporting reports changes no asset status or safety hold; reports cannot release a hold or return a device to service.
+- **Scope.** All aggregation runs in the database under RLS (`withTenant`) **and** the user's hospital/department scope (`woScopeSql` on the job's own hospital/department, `scopeSql` on the asset's). Filters are validated with Zod, then checked against scope: a hospital or department outside the user's access returns NotFound.
+- **Permissions:** `analytics.view` (everyone except Fault Reporters), `analytics.workload` and `reports.schedule` (Org Admin, Engineering Manager), `analytics.export` and `analytics.financial` (Org Admin, Engineering Manager, Auditor).
+- **Individuals.** Per-engineer figures, the engineer filter and the by-engineer breakdown need `analytics.workload`; otherwise NotFound. Workload is alphabetical with a caveat; there is no ranking.
+- **Financial data.** Acquisition cost is computed only for `analytics.financial` and every view is audited (`analytics.financial_viewed`). Snapshots never contain cost.
+- **CSV.** Formula-safe cells (`csvCell`), header with organisation, UTC generation time and period, `Cache-Control: no-store`, audited (`analytics.exported`). Export buttons are plain links (no prefetch).
+- **Scheduled reports.**
+  - Two new tables, RLS enabled and forced: `report_schedules`, `report_snapshots`. Snapshots: SELECT/INSERT only, append-only trigger. Checked manually: another organisation sees 0 rows; inserting for another organisation is refused by RLS; UPDATE/DELETE are refused.
+  - `UNIQUE (schedule_id, period_key)` prevents duplicate snapshots and notifications on retry or concurrent runs; notifications also carry a `dedupe_key`.
+  - Snapshots are computed with a synthetic read-only Auditor context limited to the schedule's hospital or organisation.
+  - Recipients are re-checked at every run (active, `analytics.view`, covers the whole scope). Viewing a snapshot needs the same coverage.
+  - The only cross-tenant step is `app_report_organizations()` (SECURITY DEFINER), which returns organisation ids with active schedules.
+  - Failures are audited as `report.generation_failed` without internal details and retried next run.
+- **Audit events added:** `analytics.exported`, `analytics.financial_viewed`, `report.schedule_created`, `report.schedule_paused`, `report.schedule_resumed`, `report.snapshot_generated`, `report.generation_failed`.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.
@@ -212,6 +229,12 @@ The export uses the same scope and filters as the register screen, is capped at 
 21. **Safety-hold exceptions are not available.** A held device can only return to service through repair, a passed retest and second-person approval. If a hospital's policy allows authorised exceptions, that process must be designed and approved first.
 22. **Test standard limits are configured by people.** The seeded IEC 62353 / AS/NZS 3551 entries and checklist limits are fictional demo values. Qualified staff must verify real procedures, editions and limits for each jurisdiction. BiomedIntel.ai does not certify compliance.
 23. **The second-person rule needs two Engineering Managers in scope.** A hospital with only one Engineering Manager must have someone else do the retest, or add a second manager. Approvers can be in any hospital that can see the device.
+24. **No operating hours are recorded,** so MTBF and MTTR are not calculated. Labelled proxies (calendar days between faults, repair duration) must not be read as MTBF/MTTR.
+25. **All durations are calendar time.** No working hours, shifts or public holidays are configured.
+26. **Costs are acquisition cost only.** Maintenance, parts and contract costs are not recorded, so no total cost of ownership is shown.
+27. **Scheduled reports are delivered in the app only.** An email provider would need a cost decision and its own security review (no report content in email bodies).
+28. **Fault categories exist only for jobs signed off from Stage 7,** so older faults appear as "Not classified".
+29. **Reports support audits; they do not certify compliance** with IEC 62353, AS/NZS 3551 or any regulation.
 
 ## Backups and environments
 

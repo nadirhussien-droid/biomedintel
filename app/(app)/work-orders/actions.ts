@@ -148,6 +148,7 @@ export async function completeAction(prev: WoFormState | null, form: FormData) {
         functionalCheck: str(form, "functionalCheck"),
         electricalSafetyCheck: str(form, "electricalSafetyCheck"),
         checkNotes: str(form, "checkNotes"),
+        failureCategory: str(form, "failureCategory"),
         declaration: form.get("declaration") === "on",
       }),
     str(form, "id"),

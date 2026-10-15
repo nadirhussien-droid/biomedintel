@@ -42,6 +42,33 @@ export const ANY_OUTCOME_LABELS: Record<string, string> = {
   CHECKS_FAILED: "Checks failed — device taken out of use",
 };
 
+/** Stage 7: optional fault category recorded when a repair is signed off. */
+export const FAILURE_CATEGORIES = [
+  "POWER_OR_BATTERY",
+  "ACCESSORY_OR_CONSUMABLE",
+  "MECHANICAL",
+  "ELECTRICAL_OR_ELECTRONIC",
+  "SOFTWARE_OR_CONFIGURATION",
+  "CALIBRATION_OR_DRIFT",
+  "PHYSICAL_DAMAGE",
+  "USE_OR_OPERATION",
+  "ENVIRONMENTAL",
+  "OTHER",
+] as const;
+export type FailureCategoryValue = (typeof FAILURE_CATEGORIES)[number];
+export const FAILURE_CATEGORY_LABELS: Record<FailureCategoryValue, string> = {
+  POWER_OR_BATTERY: "Power supply or battery",
+  ACCESSORY_OR_CONSUMABLE: "Accessory, probe or consumable",
+  MECHANICAL: "Mechanical (moving parts, housing, wheels)",
+  ELECTRICAL_OR_ELECTRONIC: "Electrical or electronic (boards, wiring, display)",
+  SOFTWARE_OR_CONFIGURATION: "Software or configuration",
+  CALIBRATION_OR_DRIFT: "Calibration or measurement drift",
+  PHYSICAL_DAMAGE: "Physical damage (dropped, liquid)",
+  USE_OR_OPERATION: "Use or operation (no device defect)",
+  ENVIRONMENTAL: "Environment (power quality, heat, dust)",
+  OTHER: "Other",
+};
+
 export const CHECKS = ["PASS", "FAIL", "NOT_APPLICABLE"] as const;
 export const CHECK_LABELS: Record<(typeof CHECKS)[number], string> = {
   PASS: "Pass",
@@ -108,6 +135,10 @@ export const completeSchema = z
     functionalCheck: z.enum(CHECKS, { message: "Record the functional check" }),
     electricalSafetyCheck: z.enum(CHECKS, { message: "Record the electrical safety check" }),
     checkNotes: optionalText(1000, "Check notes"),
+    failureCategory: z.preprocess(
+      (v) => (v === undefined || v === "" ? null : v),
+      z.enum(FAILURE_CATEGORIES, { message: "Choose a listed fault category" }).nullable(),
+    ),
     declaration: z.literal(true, { message: "Confirm the declaration to sign off" }),
   })
   .superRefine((d, ctx) => {

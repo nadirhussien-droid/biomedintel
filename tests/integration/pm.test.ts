@@ -1005,6 +1005,7 @@ describe("scheduler endpoint", () => {
         "missed",
         "organisations",
         "remindersSent",
+        "reports", // Stage 7: scheduled report snapshots run in the same daily job
         "skipped",
       ]);
     } finally {

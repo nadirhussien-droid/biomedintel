@@ -10,6 +10,9 @@ const ALLOWED = [
   /^\/work-orders\/new$/,
   new RegExp(`^/maintenance/(plans|holds)/${UUID}$`, "i"),
   /^\/maintenance(\/(schedule|calendar|review|holds|reports))?$/,
+  // Stage 7: report pages and generated report snapshots (notification links).
+  /^\/reports(\/(pm-compliance|work-orders|reliability|safety|governance|lifecycle|scheduled))?$/,
+  new RegExp(`^/reports/scheduled/${UUID}$`, "i"),
 ];
 
 export function safeNextPath(value: string | null | undefined): string | null {

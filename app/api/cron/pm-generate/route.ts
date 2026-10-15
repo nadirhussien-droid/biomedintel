@@ -5,13 +5,14 @@
 // GET is accepted because some hosting schedulers (e.g. Vercel Cron) only
 // send GET; the bearer secret protects both.
 //
-// Runs the same generation as `npm run pm:generate` for every organisation.
+// Runs the daily job (`npm run jobs:daily`) for every organisation: PM work
+// orders and reminders (Stage 6), then scheduled report snapshots (Stage 7).
 // Without CRON_SECRET configured the endpoint is switched off (503). A wrong
 // secret gets 401 and is audited. Responses contain counts only.
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auditStandalone } from "@/server/audit/audit";
-import { runScheduledGeneration } from "@/server/services/pm-generation";
+import { runDailyJobs } from "@/server/services/daily-jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -43,15 +44,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Unauthorised." }, { status: 401 });
   }
   try {
-    const results = await runScheduledGeneration();
-    return NextResponse.json({
-      organisations: results.length,
-      created: results.reduce((n, r) => n + r.created, 0),
-      missed: results.reduce((n, r) => n + r.missed, 0),
-      skipped: results.reduce((n, r) => n + r.skipped, 0),
-      failed: results.reduce((n, r) => n + r.failed, 0),
-      remindersSent: results.reduce((n, r) => n + r.remindersSent, 0),
-    });
+    const r = await runDailyJobs();
+    return NextResponse.json({ ...r.pm, reports: r.reports });
   } catch (error) {
     console.error("[cron pm-generate]", (error as Error).message);
     return NextResponse.json({ message: "Generation stopped; see the server log." }, { status: 500 });

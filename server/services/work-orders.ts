@@ -638,6 +638,7 @@ type Completion = {
   functionalCheck: "PASS" | "FAIL" | "NOT_APPLICABLE";
   electricalSafetyCheck: "PASS" | "FAIL" | "NOT_APPLICABLE";
   checkNotes: string | null;
+  failureCategory?: string | null;
   results: {
     item: ChecklistItem;
     result: "PASS" | "FAIL" | "NOT_APPLICABLE";
@@ -788,6 +789,8 @@ export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
         functionalCheck: c.functionalCheck,
         electricalSafetyCheck: c.electricalSafetyCheck,
         checkNotes: c.checkNotes,
+        // Stage 7: only repair jobs carry a fault category (also a database CHECK).
+        failureCategory: job.type === "CORRECTIVE" ? ((c.failureCategory ?? null) as never) : null,
         signOffDeclaration: true,
         completedById: ctx.user.id,
         completedAt: now,

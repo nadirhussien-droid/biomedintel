@@ -9,7 +9,13 @@ import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { StatusBadge } from "@/components/assets/status-badge";
 import { OverdueBadge, PriorityBadge, SafetyBadge, WoStatusBadge } from "@/components/work-orders/badges";
-import { CHECK_LABELS, MAX_PHOTOS, ANY_OUTCOME_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
+import {
+  CHECK_LABELS,
+  MAX_PHOTOS,
+  ANY_OUTCOME_LABELS,
+  FAILURE_CATEGORY_LABELS,
+  WO_STATUS_LABELS,
+} from "@/lib/validation/work-orders";
 import { DoNotUseBanner, OccurrenceBadge } from "@/components/pm/badges";
 import { formatDateOnly, fromDbDate } from "@/lib/pm/dates";
 import { SECTION_LABELS, WORK_TYPE_LABELS, type ChecklistSection } from "@/lib/validation/pm";
@@ -317,6 +323,11 @@ export default async function WorkOrderPage({
           </CardTitle>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <Item label="Outcome">{wo.outcome ? ANY_OUTCOME_LABELS[wo.outcome] : "—"}</Item>
+            {wo.type === "CORRECTIVE" && wo.outcome !== "NO_FAULT_FOUND" ? (
+              <Item label="Fault category">
+                {wo.failureCategory ? FAILURE_CATEGORY_LABELS[wo.failureCategory] : "Not classified"}
+              </Item>
+            ) : null}
             <Item label="Signed off by">
               {person(wo.completedById)} · {wo.completedAt ? `${dateTime.format(wo.completedAt)} UTC` : ""}
             </Item>

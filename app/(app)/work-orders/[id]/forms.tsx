@@ -8,6 +8,8 @@ import { FieldShell, InputField, SelectField } from "@/components/ui/field";
 import {
   CHECK_LABELS,
   CHECKS,
+  FAILURE_CATEGORIES,
+  FAILURE_CATEGORY_LABELS,
   MAX_PHOTO_BYTES,
   OUTCOME_LABELS,
   OUTCOMES,
@@ -270,6 +272,22 @@ export function CompleteForm({ id }: { id: string }) {
             placeholder="e.g. Battery-only device; test analyser model and result reference"
             error={err(state, "checkNotes")}
           />
+          {outcome !== "NO_FAULT_FOUND" ? (
+            <SelectField
+              label="Fault category (optional, used in reliability reports)"
+              name="failureCategory"
+              id="failureCategory"
+              defaultValue=""
+              error={err(state, "failureCategory")}
+            >
+              <option value="">Not classified</option>
+              {FAILURE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {FAILURE_CATEGORY_LABELS[c]}
+                </option>
+              ))}
+            </SelectField>
+          ) : null}
           {outcome === "NOT_REPAIRABLE" ? (
             <p className="bg-warn-bg rounded-sm px-3 py-2 text-sm text-[#6b3f00]">
               The device will stay Out of service. Request decommissioning from the asset page if it should be retired.

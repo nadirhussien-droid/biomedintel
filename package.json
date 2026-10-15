@@ -21,6 +21,7 @@
     "db:studio": "prisma studio",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "pm:generate": "tsx scripts/pm-generate.ts",
+    "jobs:daily": "tsx scripts/daily-jobs.ts",
     "postinstall": "prisma generate",
     "db:test:prepare": "tsx scripts/db/prepare-test-db.ts"
   },

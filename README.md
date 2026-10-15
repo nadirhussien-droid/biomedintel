@@ -281,6 +281,26 @@ npm run pm:generate     # creates due PM work orders and reminders for every org
 
 **Seed data:** fictional test standards, manufacturer intervals and four plans (three approved, one draft). Run `npm run pm:generate` after seeding: it creates 5 PM work orders (overdue, due today and upcoming) and records 1 missed ventilator inspection.
 
+## Reports and analytics (Stage 7)
+
+Open **Reports and Analytics** in the sidebar. Full details, definitions and formulas are in [docs/STAGE-7.md](docs/STAGE-7.md).
+
+- **Dashboard:** 14 headline figures (equipment, work orders, planned maintenance, electrical safety, reliability). Each shows its definition, whether it is "right now" or "in the period", and links to the records behind it.
+- **Reports:** PM compliance (the single source of compliance figures — `/maintenance/reports` now redirects here), work order performance, equipment reliability, electrical safety and return to service, plan governance, lifecycle and cost.
+- **Filters:** period (this month, last month, this year, last 12 months, custom), hospital, department, location, category, priority, status. Dates use each hospital's local calendar; durations are calendar time.
+- **Honest figures:** compliance is N/A when nothing was due; MTBF/MTTR are not shown because operating hours are not recorded (labelled proxies are used instead); only acquisition cost is shown, and only to financial roles.
+- **CSV export** (Org Admin, Engineering Manager, Auditor): same filters as the screen, formula-safe, with generation time and period. Every export is audited.
+- **Scheduled reports** (Org Admin, Engineering Manager): weekly or monthly read-only snapshots, delivered as in-app notifications (no email is sent).
+- **Fault category:** an optional field when signing off a corrective job, used by the reliability report.
+
+**Daily job:**
+
+```bash
+npm run jobs:daily      # PM generation and reminders, then scheduled report snapshots
+```
+
+Safe to run any number of times. The cron endpoint `/api/cron/pm-generate` runs the same job.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
@@ -337,6 +357,14 @@ Stage 6 adds tests for:
 - the full failed-safety-test hold with second-person approval;
 - reports, exports, barcode entry, the scheduler endpoint, and MFA storage and recovery.
 
+Stage 7 adds tests for:
+
+- reporting periods, time zones and the N/A rule;
+- exact values for every report from a fixture with known timestamps;
+- read-only behaviour, financial and workload restrictions, scope and tenant isolation;
+- CSV formula safety, scheduled-report idempotency and recipient re-checks;
+- performance with 20,000 work orders and 10,000 PM due dates.
+
 **If you add a new migration**, run `npm run db:test:prepare` before `npm test`.
 
 HTTP checks against a running server (optional):
@@ -361,7 +389,7 @@ Run the server on the address in `BETTER_AUTH_URL` (port 3000 by default): sign-
 4. **The database checks again** — Row-Level Security on every tenant table; the app's database role cannot bypass it. The tenant is set per transaction, so pooled connections never leak it.
 5. **Everything important is audited** — append-only `audit_logs` that even the app cannot change.
 
-Details: [docs/SECURITY.md](docs/SECURITY.md) · Stage reports: [docs/STAGE-3.md](docs/STAGE-3.md), [docs/STAGE-4.md](docs/STAGE-4.md).
+Details: [docs/SECURITY.md](docs/SECURITY.md) · Stage reports: [docs/STAGE-3.md](docs/STAGE-3.md), [docs/STAGE-4.md](docs/STAGE-4.md), [docs/STAGE-5.md](docs/STAGE-5.md), [docs/STAGE-6.md](docs/STAGE-6.md), [docs/STAGE-7.md](docs/STAGE-7.md).
 
 ## Project structure
 

@@ -53,7 +53,7 @@ const OPEN_ITEM = ["SCHEDULED", "WORK_ORDER_CREATED", "FAILED"];
 const HISTORY_ITEM = ["COMPLETED", "CANCELLED", "MISSED", "SKIPPED"];
 
 /** Each accessible hospital with its local "today". */
-async function hospitalDays(ctx: AccessContext, tx: Tx, now: Date) {
+export async function hospitalDays(ctx: AccessContext, tx: Tx, now: Date) {
   const rows = await tx.hospital.findMany({
     where: { id: { in: ctx.hospitals.map((h) => h.id) } },
     select: { id: true, timezone: true },
@@ -62,7 +62,7 @@ async function hospitalDays(ctx: AccessContext, tx: Tx, now: Date) {
 }
 
 /** SQL version of assetScopeWhere for raw queries (alias "a" = assets). */
-function scopeSql(ctx: AccessContext): Prisma.Sql {
+export function scopeSql(ctx: AccessContext): Prisma.Sql {
   if (!ctx.hospitals.length) return Prisma.sql`FALSE`;
   const parts = ctx.hospitals.map((h) =>
     h.departments === "ALL"
@@ -76,13 +76,13 @@ function scopeSql(ctx: AccessContext): Prisma.Sql {
   return Prisma.sql`(${Prisma.join(parts, " OR ")})`;
 }
 
-function todaySql(days: { id: string; today: string }[]): Prisma.Sql {
+export function todaySql(days: { id: string; today: string }[]): Prisma.Sql {
   if (!days.length) return Prisma.sql`SELECT NULL::uuid AS hospital_id, NULL::date AS d WHERE FALSE`;
   return Prisma.sql`VALUES ${Prisma.join(days.map((d) => Prisma.sql`(${d.id}::uuid, ${d.today}::date)`))}`;
 }
 
 /** The two kinds of schedule row as one set (see top of file). */
-const ITEMS = Prisma.sql`
+export const ITEMS = Prisma.sql`
   SELECT 'occurrence'::text AS kind, o.id, o.due_on, o.status::text AS status, o.asset_id, o.plan_id,
          w.id AS wo_id, w.number AS wo_number, w.status::text AS wo_status,
          COALESCE(w.priority::text, p.priority::text) AS priority, COALESCE(w.assigned_to, p.default_assignee_id) AS assignee,
@@ -506,7 +506,7 @@ export async function getAssetPm(ctx: AccessContext, assetId: string, opts: { no
 // ─── Dashboard and reports ───────────────────────────────────────────────────
 
 /** Default period: this calendar month up to today (first accessible hospital's date). */
-async function defaultPeriod(ctx: AccessContext, tx: Tx, now: Date) {
+export async function defaultPeriod(ctx: AccessContext, tx: Tx, now: Date) {
   const days = await hospitalDays(ctx, tx, now);
   const today = days[0]?.today ?? now.toISOString().slice(0, 10);
   return { from: `${today.slice(0, 8)}01`, to: today, today };
@@ -545,15 +545,45 @@ type MetricRow = { key: string | null; label: string | null; status: string; on_
  * overall and broken down by category, department, hospital, location or
  * assigned engineer.
  */
+export type ComplianceGroupBy =
+  | "category"
+  | "department"
+  | "hospital"
+  | "assignee"
+  | "location"
+  | "month"
+  | "asset"
+  | "plan"
+  | "none";
+
+export type ComplianceFilters = {
+  hospital?: string;
+  department?: string;
+  category?: string;
+  location?: string;
+  plan?: string;
+  asset?: string;
+  assignee?: string;
+};
+
+/**
+ * PM compliance figures — the ONE calculation used by the maintenance
+ * overview, the Stage 7 analytics pages, CSV exports, scheduled report
+ * snapshots and the dashboard (see METRIC DEFINITIONS at the top of this file).
+ */
+export async function pmComplianceMetrics(
+  ctx: AccessContext,
+  tx: Tx,
+  p: { from: string; to: string; by: ComplianceGroupBy } & ComplianceFilters,
+  now: Date,
+) {
+  return metrics(ctx, tx, p, now);
+}
+
 async function metrics(
   ctx: AccessContext,
   tx: Tx,
-  p: {
-    from: string;
-    to: string;
-    hospital?: string;
-    by: "category" | "department" | "hospital" | "assignee" | "location";
-  },
+  p: { from: string; to: string; by: ComplianceGroupBy } & ComplianceFilters,
   now: Date,
 ) {
   const days = await hospitalDays(ctx, tx, now);
@@ -563,6 +593,10 @@ async function metrics(
     hospital: Prisma.sql`h.id::text`,
     assignee: Prisma.sql`i.assignee`,
     location: Prisma.sql`l.id::text`,
+    month: Prisma.sql`to_char(i.due_on, 'YYYY-MM')`,
+    asset: Prisma.sql`a.id::text`,
+    plan: Prisma.sql`p.id::text`,
+    none: Prisma.sql`'all'`,
   }[p.by];
   const groupLabel = {
     category: Prisma.sql`c.name`,
@@ -570,6 +604,10 @@ async function metrics(
     hospital: Prisma.sql`h.name`,
     assignee: Prisma.sql`i.assignee`,
     location: Prisma.sql`l.name`,
+    month: Prisma.sql`to_char(i.due_on, 'YYYY-MM')`,
+    asset: Prisma.sql`a.asset_tag || ' · ' || a.name`,
+    plan: Prisma.sql`p.name`,
+    none: Prisma.sql`'All equipment'`,
   }[p.by];
   const filters = [
     scopeSql(ctx),
@@ -578,6 +616,12 @@ async function metrics(
     Prisma.sql`i.due_on <= t.d`, // only due dates that have arrived
     Prisma.sql`i.status <> 'SKIPPED'`,
     ...(p.hospital ? [Prisma.sql`a.hospital_id = ${p.hospital}::uuid`] : []),
+    ...(p.department ? [Prisma.sql`a.department_id = ${p.department}::uuid`] : []),
+    ...(p.category ? [Prisma.sql`m.category_id = ${p.category}::uuid`] : []),
+    ...(p.location ? [Prisma.sql`a.location_id = ${p.location}::uuid`] : []),
+    ...(p.plan ? [Prisma.sql`i.plan_id = ${p.plan}::uuid`] : []),
+    ...(p.asset ? [Prisma.sql`a.id = ${p.asset}::uuid`] : []),
+    ...(p.assignee ? [Prisma.sql`i.assignee = ${p.assignee}`] : []),
   ];
   const rows = await tx.$queryRaw<MetricRow[]>`
     SELECT ${groupKey} AS key, ${groupLabel} AS label, i.status, i.on_time, count(*) AS n
@@ -588,6 +632,7 @@ async function metrics(
     LEFT JOIN locations l ON l.id = a.location_id
     JOIN equipment_models m ON m.id = a.model_id
     JOIN equipment_categories c ON c.id = m.category_id
+    JOIN maintenance_plans p ON p.id = i.plan_id
     JOIN (${todaySql(days)}) t(hospital_id, d) ON t.hospital_id = a.hospital_id
     WHERE ${Prisma.join(filters, " AND ")}
     GROUP BY 1, 2, 3, 4`;
@@ -626,6 +671,8 @@ async function metrics(
     groups: [...groups.values()].map(withRates).sort((a, b) => a.label.localeCompare(b.label)),
   };
 }
+
+export type ComplianceBucket = Awaited<ReturnType<typeof metrics>>["total"];
 
 /** Operational counts for the PM overview (right now, hospital dates). */
 async function operational(

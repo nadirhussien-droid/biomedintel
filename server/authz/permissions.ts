@@ -115,6 +115,23 @@ export const PERMISSIONS = {
   // retest may approve return to service (second-person rule in the service
   // and the database).
   "safety.release": ["ENGINEERING_MANAGER"],
+
+  // Analytics and reports (Stage 7). Read-only; scope as everywhere else.
+  "analytics.view": [
+    "ORG_ADMIN",
+    "ENGINEERING_MANAGER",
+    "TECHNICIAN",
+    "INVENTORY_MANAGER",
+    "DEPARTMENT_HEAD",
+    "AUDITOR",
+  ],
+  // Workload per engineer: management context only, never a public ranking.
+  "analytics.workload": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  "analytics.export": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
+  // Financial figures (acquisition cost). Same roles that may see asset cost.
+  "analytics.financial": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
+  // Create and change scheduled reports.
+  "reports.schedule": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
 } as const satisfies Record<string, readonly MembershipRole[]>;
 
 export type Action = keyof typeof PERMISSIONS;

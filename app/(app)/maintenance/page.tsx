@@ -106,7 +106,7 @@ export default async function MaintenanceOverview() {
                   : "danger"
           }
           note={`${o.month.onTime} on time of ${o.month.due} due · ${month}`}
-          href={can(ctx, "pm.report") ? "/maintenance/reports" : undefined}
+          href={can(ctx, "analytics.view") ? "/reports/pm-compliance" : undefined}
         />
         <Kpi label="PM work orders generated" value={o.generatedInPeriod} note={month} />
         <Kpi label="PM completed" value={o.completedInPeriod} note={month} />

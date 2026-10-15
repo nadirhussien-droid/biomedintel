@@ -25,7 +25,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     { href: "/maintenance/plans", label: "Plans" },
     { href: "/maintenance/review", label: "Needs review" },
     { href: "/maintenance/holds", label: "Safety holds" },
-    ...(can(ctx, "pm.report") ? [{ href: "/maintenance/reports", label: "Reports" }] : []),
+    ...(can(ctx, "analytics.view") ? [{ href: "/reports/pm-compliance", label: "Compliance report" }] : []),
     { href: "/maintenance/settings", label: "Settings" },
   ];
   return (

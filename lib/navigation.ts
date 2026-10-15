@@ -39,7 +39,7 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: "/inventory",
         label: "Spare Parts Inventory",
-        stage: 7,
+        stage: 8,
         icon: "M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10",
       },
     ],
@@ -59,7 +59,7 @@ export const NAVIGATION: NavGroup[] = [
         stage: 9,
         icon: "M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5zM6.5 12.5h2.5l1.5-3 2 6 1.5-3h3.5",
       },
-      { href: "/reports", label: "Reports and Analytics", stage: 7, icon: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" },
+      { href: "/reports", label: "Reports and Analytics", icon: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" },
     ],
   },
   {
