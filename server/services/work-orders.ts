@@ -14,14 +14,31 @@
 //     managers and organisation admins immediately.
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import type { Prisma, WorkOrderPriority, WorkOrderStatus, AssetStatus } from "../db/generated/client";
+import type { Prisma, WorkOrderPriority, WorkOrderStatus } from "../db/generated/client";
 import { withTenant, type Tx } from "../db/tenant";
-import { audit, auditStandalone } from "../audit/audit";
+import { auditStandalone } from "../audit/audit";
 import { can, requirePermission, type AccessContext } from "../authz/access";
 import { AuthorizationError, NotFoundError, ValidationError } from "../authz/errors";
 import { parseInput } from "../validation";
 import { assetScopeWhere } from "./assets";
 import { findStaff, notify } from "./notifications";
+import {
+  addEvent,
+  auditWO,
+  createWorkOrderRecord,
+  dueFrom,
+  endDowntime,
+  managersToAlert,
+  OPEN,
+  openSafetyHold,
+  peopleNames,
+  setAssetStatus,
+  startDowntime,
+  WORKER_ROLES,
+} from "./work-order-core";
+import { onHoldRepairCompleted, onHoldRetestCompleted, placeSafetyHold } from "./safety-holds";
+import { localToday, isOnTime, fromDbDate } from "@/lib/pm/dates";
+import { pmCompleteSchema, type ChecklistItem, DO_NOT_USE_LABEL } from "@/lib/validation/pm";
 import {
   assignSchema,
   completeSchema,
@@ -30,8 +47,6 @@ import {
   MAX_PHOTO_BYTES,
   MAX_PHOTOS,
   noteSchema,
-  OPEN_STATUSES,
-  PRIORITY_TARGET_HOURS,
   prioritySchema,
   reasonSchema,
   reportFaultSchema,
@@ -43,8 +58,6 @@ import {
 
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OPEN: WorkOrderStatus[] = [...OPEN_STATUSES];
-const WORKER_ROLES = ["TECHNICIAN", "ENGINEERING_MANAGER"] as const;
 
 // ─── Scope ───────────────────────────────────────────────────────────────────
 
@@ -113,111 +126,6 @@ function expectStatus(wo: CoreWO, allowed: WorkOrderStatus[], message: string) {
   if (!allowed.includes(wo.status)) throw new ValidationError(message);
 }
 
-const dueFrom = (from: Date, priority: WorkOrderPriority) =>
-  new Date(from.getTime() + PRIORITY_TARGET_HOURS[priority] * 3600_000);
-
-async function addEvent(
-  tx: Tx,
-  ctx: AccessContext,
-  workOrderId: string,
-  kind: string,
-  extra: { fromStatus?: WorkOrderStatus; toStatus?: WorkOrderStatus; note?: string | null } = {},
-) {
-  await tx.workOrderEvent.create({
-    data: {
-      organizationId: ctx.organization.id,
-      workOrderId,
-      kind,
-      fromStatus: extra.fromStatus ?? null,
-      toStatus: extra.toStatus ?? null,
-      note: extra.note ?? null,
-      actorId: ctx.user.id,
-    },
-  });
-}
-
-function auditWO(tx: Tx, ctx: AccessContext, action: string, wo: { id: string }, metadata: Record<string, unknown>) {
-  return audit(tx, {
-    organizationId: ctx.organization.id,
-    actorUserId: ctx.user.id,
-    action,
-    entityType: "work_order",
-    entityId: wo.id,
-    metadata,
-    request: ctx.request,
-  });
-}
-
-/** Changes the asset's operational status because of a job, with history and audit. */
-async function setAssetStatus(
-  tx: Tx,
-  ctx: AccessContext,
-  asset: { id: string; status: AssetStatus; assetTag: string },
-  to: AssetStatus,
-  workOrderId: string,
-  reason: string,
-) {
-  if (asset.status === to || asset.status === "DECOMMISSIONED") return;
-  await tx.asset.updateMany({ where: { id: asset.id }, data: { status: to, updatedById: ctx.user.id } });
-  await tx.assetStatusHistory.create({
-    data: {
-      organizationId: ctx.organization.id,
-      assetId: asset.id,
-      fromStatus: asset.status,
-      toStatus: to,
-      reason,
-      changedById: ctx.user.id,
-      workOrderId,
-    },
-  });
-  await audit(tx, {
-    organizationId: ctx.organization.id,
-    actorUserId: ctx.user.id,
-    action: to === "IN_SERVICE" ? "asset.returned_to_service" : "asset.status_changed",
-    entityType: "asset",
-    entityId: asset.id,
-    metadata: { from: asset.status, to, assetTag: asset.assetTag, workOrderId },
-    request: ctx.request,
-  });
-}
-
-async function startDowntime(tx: Tx, ctx: AccessContext, assetId: string, workOrderId: string, reason: string) {
-  const open = await tx.downtimeEvent.findFirst({ where: { assetId, endedAt: null }, select: { id: true } });
-  if (!open) {
-    await tx.downtimeEvent.create({
-      data: { organizationId: ctx.organization.id, assetId, workOrderId, reason },
-    });
-  }
-}
-
-async function endDowntime(tx: Tx, assetId: string) {
-  await tx.downtimeEvent.updateMany({ where: { assetId, endedAt: null }, data: { endedAt: new Date() } });
-}
-
-/** Next number per organisation and year: WO-2026-00001. Concurrency-safe (row lock). */
-async function nextNumber(tx: Tx, ctx: AccessContext, now: Date): Promise<string> {
-  const year = now.getUTCFullYear();
-  const rows = await tx.$queryRaw<{ last_number: number }[]>`
-    INSERT INTO work_order_counters (organization_id, year, last_number)
-    VALUES (${ctx.organization.id}::uuid, ${year}, 1)
-    ON CONFLICT (organization_id, year) DO UPDATE SET last_number = work_order_counters.last_number + 1
-    RETURNING last_number`;
-  return `WO-${year}-${String(rows[0].last_number).padStart(5, "0")}`;
-}
-
-async function managersToAlert(tx: Tx, wo: { hospitalId: string; departmentId: string }, safetyCritical: boolean) {
-  const staff = await findStaff(tx, {
-    hospitalId: wo.hospitalId,
-    departmentId: wo.departmentId,
-    roles: safetyCritical ? ["ENGINEERING_MANAGER", "ORG_ADMIN", "TECHNICIAN"] : ["ENGINEERING_MANAGER", "TECHNICIAN"],
-  });
-  const managers = staff.filter((s) => s.role === "ENGINEERING_MANAGER").map((s) => s.userId);
-  const admins = staff.filter((s) => s.role === "ORG_ADMIN").map((s) => s.userId);
-  // Hospitals without an engineering manager: tell the technicians instead.
-  const fallback = managers.length ? [] : staff.filter((s) => s.role === "TECHNICIAN").map((s) => s.userId);
-  return [...managers, ...admins, ...fallback];
-}
-
 // ─── Reporting a fault (workflow C) ──────────────────────────────────────────
 
 export type ReportResult = { id: string; number: string };
@@ -252,8 +160,9 @@ export async function reportFault(ctx: AccessContext, input: unknown): Promise<R
     if (asset.archivedAt) throw new ValidationError("This asset is archived. Ask your engineering team.");
     if (asset.status === "DECOMMISSIONED") throw new ValidationError("This asset is decommissioned.");
 
+    // Planned maintenance jobs are not faults, so only open fault jobs count here.
     const existing = await tx.workOrder.findFirst({
-      where: { assetId: asset.id, status: { in: OPEN } },
+      where: { assetId: asset.id, status: { in: OPEN }, type: "CORRECTIVE" },
       select: { number: true },
       orderBy: { createdAt: "asc" },
     });
@@ -274,40 +183,22 @@ export async function reportFault(ctx: AccessContext, input: unknown): Promise<R
         ? "LOW"
         : "MEDIUM";
     const now = new Date();
-    const number = await nextNumber(tx, ctx, now);
-    const wo = await tx.workOrder.create({
-      data: {
-        organizationId: ctx.organization.id,
-        number,
-        assetId: asset.id,
-        hospitalId: asset.hospitalId,
-        departmentId: asset.departmentId,
-        type: "CORRECTIVE",
-        priority,
-        status: "REQUESTED",
-        safetyCritical,
-        outOfUse: data.outOfUse,
-        faultDescription: data.faultDescription,
-        reportedById: ctx.user.id,
-        dueAt: dueFrom(now, priority),
-        updatedById: ctx.user.id,
-        createdAt: now, // same moment the target time is measured from
-      },
-      select: { id: true, number: true, hospitalId: true, departmentId: true },
-    });
-    await addEvent(tx, ctx, wo.id, "CREATED", { toStatus: "REQUESTED" });
-    if (data.outOfUse) {
-      await setAssetStatus(tx, ctx, asset, "OUT_OF_SERVICE", wo.id, `Taken out of use: fault reported (${number})`);
-      await startDowntime(tx, ctx, asset.id, wo.id, `Fault reported (${number})`);
-    }
-    await auditWO(tx, ctx, "workorder.requested", wo, {
-      number,
-      assetTag: asset.assetTag,
+    const wo = await createWorkOrderRecord(tx, ctx, {
+      asset,
+      type: "CORRECTIVE",
       priority,
       safetyCritical,
       outOfUse: data.outOfUse,
-      duplicateConfirmed: existing ? true : undefined,
+      description: data.faultDescription,
+      reportedById: ctx.user.id,
+      dueAt: dueFrom(now, priority),
+      now,
+      source: "fault",
+      outOfUseStatusReason: (n) => `Taken out of use: fault reported (${n})`,
+      outOfUseDowntimeReason: (n) => `Fault reported (${n})`,
+      auditExtra: { duplicateConfirmed: existing ? true : undefined },
     });
+    const number = wo.number;
     await notify(tx, ctx, await managersToAlert(tx, wo, safetyCritical), {
       type: safetyCritical ? "workorder.safety_critical" : "workorder.reported",
       title: `${safetyCritical ? "SAFETY-CRITICAL fault" : "New fault"}: ${asset.assetTag} ${asset.name}`,
@@ -400,13 +291,6 @@ export async function listWorkOrders(ctx: AccessContext, rawQuery: unknown) {
   });
 }
 
-async function peopleNames(tx: Tx, ids: (string | null | undefined)[]): Promise<Record<string, string>> {
-  const unique = [...new Set(ids.filter((i): i is string => Boolean(i)))];
-  if (!unique.length) return {};
-  const people = await tx.user.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
-  return Object.fromEntries(people.map((p) => [p.id, p.name]));
-}
-
 /** Everything the work order page needs, plus what THIS user may do (decided on the server). */
 export async function getWorkOrder(ctx: AccessContext, id: string) {
   await requirePermission(ctx, "workorder.view", { entityType: "work_order" });
@@ -427,7 +311,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
             location: { select: { name: true } },
           },
         },
-        hospital: { select: { name: true, code: true } },
+        hospital: { select: { name: true, code: true, timezone: true } },
         department: { select: { name: true } },
         events: { orderBy: { createdAt: "asc" } },
         tasks: { orderBy: { createdAt: "asc" } },
@@ -436,8 +320,30 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
           select: { id: true, filename: true, mime: true, sizeBytes: true, width: true, height: true, createdAt: true },
         },
         downtime: { orderBy: { startedAt: "asc" } },
+        checklistResults: { orderBy: [{ attempt: "desc" }, { recordedAt: "asc" }, { itemKey: "asc" }] },
+        pmOccurrence: {
+          select: {
+            id: true,
+            dueOn: true,
+            status: true,
+            completedOn: true,
+            onTime: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                requiredCompetency: true,
+                estimatedMinutes: true,
+                documentReference: true,
+              },
+            },
+          },
+        },
+        planRevision: { select: { revisionNo: true, snapshot: true } },
+        safetyHold: { select: { id: true, status: true } },
       },
     });
+    const assetHold = await openSafetyHold(tx, wo.assetId);
     const names = await peopleNames(tx, [
       wo.reportedById,
       wo.assignedToId,
@@ -447,6 +353,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
       wo.cancelledById,
       ...wo.events.map((e) => e.actorId),
       ...wo.tasks.map((t) => t.performedById),
+      ...wo.checklistResults.map((r) => r.recordedById),
     ]);
 
     const manage = can(ctx, "workorder.manage");
@@ -454,8 +361,15 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
     const open = OPEN.includes(wo.status);
     const candidates = manage && open ? await assigneeCandidates(tx, wo) : [];
     const totalMinutes = wo.tasks.reduce((sum, t) => sum + t.minutes, 0);
+    const checklist = Array.isArray(wo.checklist) ? (wo.checklist as unknown as ChecklistItem[]) : null;
+    // Instructions come from the approved plan version this job was made from.
+    const snapshot = (wo.planRevision?.snapshot ?? null) as { instructions?: string | null } | null;
     return {
       ...wo,
+      checklistItems: checklist,
+      planned: checklist !== null,
+      instructions: snapshot?.instructions ?? null,
+      assetHold,
       people: names,
       totalMinutes,
       overdue: open && wo.dueAt !== null && wo.dueAt < new Date(),
@@ -473,7 +387,8 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
           open &&
           wo.attachments.length < MAX_PHOTOS &&
           (manage || isAssignee || (wo.reportedById === ctx.user.id && can(ctx, "workorder.report"))),
-        cancel: open && (manage || (wo.reportedById === ctx.user.id && wo.status === "REQUESTED")),
+        // Repair and retest jobs of a safety hold cannot be cancelled: the hold needs them.
+        cancel: open && !wo.safetyHoldId && (manage || (wo.reportedById === ctx.user.id && wo.status === "REQUESTED")),
         reopen: manage && wo.status === "COMPLETED",
         review: manage && wo.status === "COMPLETED" && wo.reviewedAt === null && wo.completedById !== ctx.user.id,
       },
@@ -716,6 +631,126 @@ export async function addWorkOrderNote(ctx: AccessContext, input: unknown) {
 
 // ─── Sign-off by the technician (workflow E, decision of 15 Oct 2026) ────────
 
+type Completion = {
+  diagnosis: string | null;
+  resolution: string;
+  outcome: "REPAIRED" | "NO_FAULT_FOUND" | "NOT_REPAIRABLE" | "CHECKS_PASSED" | "CHECKS_FAILED";
+  functionalCheck: "PASS" | "FAIL" | "NOT_APPLICABLE";
+  electricalSafetyCheck: "PASS" | "FAIL" | "NOT_APPLICABLE";
+  checkNotes: string | null;
+  results: {
+    item: ChecklistItem;
+    result: "PASS" | "FAIL" | "NOT_APPLICABLE";
+    value: number | null;
+    notes: string | null;
+  }[];
+};
+
+const fmtNum = (n: number) => String(Number(n.toFixed(4)));
+
+/**
+ * Checks a planned job's checklist answers against the checklist copied onto
+ * the job. The summary checks and the outcome are DERIVED from the answers,
+ * so a failed item can never be signed off as a pass.
+ */
+function parsePlannedCompletion(
+  input: unknown,
+  checklist: ChecklistItem[],
+  standard: { code: string | null; version: string | null },
+): Completion {
+  let data;
+  try {
+    data = parseInput(pmCompleteSchema, input);
+  } catch (error) {
+    // Show answer problems next to their checklist item ("answers.2.result" → "item_<key>").
+    if (!(error instanceof ValidationError)) throw error;
+    const raw = ((input as { answers?: { key?: unknown }[] })?.answers ?? []) as { key?: unknown }[];
+    const mapped: Record<string, string[]> = {};
+    for (const [field, messages] of Object.entries(error.fieldErrors)) {
+      const m = /^answers\.(\d+)\./.exec(field);
+      const key = m ? String(raw[Number(m[1])]?.key ?? "") : "";
+      mapped[key ? `item_${key}` : field] = messages;
+    }
+    throw new ValidationError(error.message, mapped);
+  }
+  const answers = new Map(data.answers.map((a) => [a.key, a]));
+  const errors: Record<string, string[]> = {};
+  const results: Completion["results"] = [];
+  for (const item of checklist) {
+    const a = answers.get(item.key);
+    const field = `item_${item.key}`;
+    if (!a) {
+      errors[field] = ["Answer this item"];
+      continue;
+    }
+    if (a.result !== "NOT_APPLICABLE" && item.kind === "MEASUREMENT" && a.value === null) {
+      errors[field] = [`Enter the measured value (${item.unit ?? "value"})`];
+      continue;
+    }
+    if (a.value !== null && a.result === "PASS") {
+      if ((item.min !== null && a.value < item.min) || (item.max !== null && a.value > item.max)) {
+        errors[field] = [
+          `${fmtNum(a.value)} ${item.unit ?? ""} is outside the limits (${item.min ?? "—"} to ${item.max ?? "—"}): record it as Fail`.trim(),
+        ];
+        continue;
+      }
+    }
+    if (a.result === "FAIL" && !a.notes) {
+      errors[field] = ["Describe what failed"];
+      continue;
+    }
+    if (a.result === "NOT_APPLICABLE" && item.required && !a.notes) {
+      errors[field] = ["Say why this required item does not apply"];
+      continue;
+    }
+    if (
+      item.section === "ELECTRICAL_SAFETY" &&
+      a.result !== "NOT_APPLICABLE" &&
+      (!standard.code || !standard.version)
+    ) {
+      errors[field] = ["No verified test standard is recorded for this job; ask your engineering manager"];
+      continue;
+    }
+    results.push({ item, result: a.result, value: a.value, notes: a.notes });
+  }
+  for (const key of answers.keys()) {
+    if (!checklist.some((i) => i.key === key)) errors.answers = ["Unknown checklist item"];
+  }
+  if (Object.keys(errors).length) {
+    throw new ValidationError("Some checklist answers need attention.", errors);
+  }
+  const summary = (section: string) => {
+    const rs = results.filter((r) => r.item.section === section);
+    if (rs.some((r) => r.result === "FAIL")) return "FAIL" as const;
+    if (rs.some((r) => r.result === "PASS")) return "PASS" as const;
+    return "NOT_APPLICABLE" as const;
+  };
+  const anyFail = results.some((r) => r.result === "FAIL");
+  const es = summary("ELECTRICAL_SAFETY");
+  return {
+    diagnosis: data.diagnosis,
+    resolution: data.resolution,
+    outcome: anyFail ? "CHECKS_FAILED" : "CHECKS_PASSED",
+    functionalCheck: summary("FUNCTIONAL"),
+    electricalSafetyCheck: es,
+    checkNotes:
+      es === "NOT_APPLICABLE"
+        ? "No electrical safety items in this checklist, or all marked not applicable"
+        : `Electrical safety tested to ${standard.code} ${standard.version}`,
+    results,
+  };
+}
+
+const failedSummary = (c: Completion, section?: string) =>
+  c.results
+    .filter((r) => r.result === "FAIL" && (!section || r.item.section === section))
+    .map(
+      (r) =>
+        `${r.item.label}${r.value !== null ? ` (${fmtNum(r.value)} ${r.item.unit ?? ""})`.replace(" )", ")") : ""}`,
+    )
+    .join("; ")
+    .slice(0, 900);
+
 export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
   await requirePermission(ctx, "workorder.work", { entityType: "work_order" });
   const raw = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
@@ -724,18 +759,35 @@ export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
     // Only the technician who did the job signs it off (also a database CHECK).
     await requireAssignee(ctx, wo, "workorder.complete");
     expectStatus(wo, ["IN_PROGRESS", "ON_HOLD"], "Only a started job can be signed off.");
-    const data = parseInput(completeSchema, input);
+    const job = await tx.workOrder.findUniqueOrThrow({
+      where: { id: wo.id },
+      select: {
+        type: true,
+        checklist: true,
+        reopenCount: true,
+        pmOccurrenceId: true,
+        safetyHoldId: true,
+        testStandardCode: true,
+        testStandardVersion: true,
+        hospital: { select: { timezone: true } },
+      },
+    });
+    const checklist = Array.isArray(job.checklist) ? (job.checklist as unknown as ChecklistItem[]) : null;
+    const c: Completion = checklist
+      ? parsePlannedCompletion(input, checklist, { code: job.testStandardCode, version: job.testStandardVersion })
+      : { ...parseInput(completeSchema, input), results: [] };
+
     const now = new Date();
     const r = await tx.workOrder.updateMany({
       where: { id: wo.id, status: { in: ["IN_PROGRESS", "ON_HOLD"] }, assignedToId: ctx.user.id },
       data: {
         status: "COMPLETED",
-        diagnosis: data.diagnosis,
-        resolution: data.resolution,
-        outcome: data.outcome,
-        functionalCheck: data.functionalCheck,
-        electricalSafetyCheck: data.electricalSafetyCheck,
-        checkNotes: data.checkNotes,
+        diagnosis: c.diagnosis,
+        resolution: c.resolution,
+        outcome: c.outcome,
+        functionalCheck: c.functionalCheck,
+        electricalSafetyCheck: c.electricalSafetyCheck,
+        checkNotes: c.checkNotes,
         signOffDeclaration: true,
         completedById: ctx.user.id,
         completedAt: now,
@@ -744,47 +796,180 @@ export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
       },
     });
     if (r.count === 0) throw new ValidationError("This job changed while you were signing off. Reload and try again.");
-    await addEvent(tx, ctx, wo.id, "COMPLETED", { fromStatus: wo.status, toStatus: "COMPLETED", note: data.outcome });
+    await addEvent(tx, ctx, wo.id, "COMPLETED", { fromStatus: wo.status, toStatus: "COMPLETED", note: c.outcome });
+
+    // Checklist answers: append-only; a reopened job records a new attempt.
+    if (c.results.length) {
+      await tx.checklistResult.createMany({
+        data: c.results.map((x) => ({
+          organizationId: ctx.organization.id,
+          workOrderId: wo.id,
+          attempt: job.reopenCount,
+          itemKey: x.item.key,
+          label: x.item.label,
+          section: x.item.section,
+          result: x.result,
+          value: x.value,
+          unit: x.item.unit,
+          lowerLimit: x.item.min,
+          upperLimit: x.item.max,
+          notes: x.notes,
+          testStandardCode: x.item.section === "ELECTRICAL_SAFETY" ? job.testStandardCode : null,
+          testStandardVersion: x.item.section === "ELECTRICAL_SAFETY" ? job.testStandardVersion : null,
+          recordedById: ctx.user.id,
+          recordedAt: now,
+        })),
+      });
+    }
 
     const asset = await tx.asset.findUniqueOrThrow({
       where: { id: wo.assetId },
       select: { id: true, status: true, assetTag: true, archivedAt: true },
     });
+    const esFailed = c.electricalSafetyCheck === "FAIL";
+    const isRetest = Boolean(job.safetyHoldId) && job.type === "SAFETY_TEST";
+    const isHoldRepair = Boolean(job.safetyHoldId) && job.type === "CORRECTIVE";
     let returnedToService = false;
-    if (data.outcome === "NOT_REPAIRABLE") {
+    let safetyHoldPlaced = false;
+    let correctiveCreated: string | null = null;
+
+    if (isRetest) {
+      // Retest of a safety hold: the hold decides; never back to service here.
+      await onHoldRetestCompleted(
+        tx,
+        ctx,
+        { id: wo.id, number: wo.number, safetyHoldId: job.safetyHoldId! },
+        c.outcome === "CHECKS_PASSED",
+        failedSummary(c) || "Retest failed",
+      );
+    } else if (esFailed) {
+      // Decision of 15 Oct 2026: Failed Safety Test — Do Not Use.
+      await placeSafetyHold(tx, ctx, {
+        assetId: asset.id,
+        failedWo: { id: wo.id, number: wo.number },
+        summary: failedSummary(c, "ELECTRICAL_SAFETY") || c.checkNotes || "Electrical safety test failed",
+        createRepair: c.outcome !== "NOT_REPAIRABLE",
+      });
+      safetyHoldPlaced = true;
+    } else if (isHoldRepair) {
+      await onHoldRepairCompleted(
+        tx,
+        ctx,
+        { id: wo.id, number: wo.number, safetyHoldId: job.safetyHoldId! },
+        c.outcome !== "NOT_REPAIRABLE",
+      );
+      if (c.outcome === "NOT_REPAIRABLE" && asset.status !== "OUT_OF_SERVICE") {
+        await setAssetStatus(tx, ctx, asset, "OUT_OF_SERVICE", wo.id, `Not repairable (${wo.number})`);
+      }
+    } else if (c.outcome === "CHECKS_FAILED") {
+      // Planned work found a fault: out of use, and a repair job through the normal workflow.
+      const full = await tx.asset.findUniqueOrThrow({
+        where: { id: asset.id },
+        select: { id: true, assetTag: true, status: true, hospitalId: true, departmentId: true, name: true },
+      });
+      const repair = await createWorkOrderRecord(tx, ctx, {
+        asset: full,
+        type: "CORRECTIVE",
+        priority: wo.safetyCritical ? "URGENT" : "HIGH",
+        safetyCritical: wo.safetyCritical,
+        outOfUse: true,
+        description: `Fault found during ${wo.number}: ${failedSummary(c) || "a check failed"}`,
+        reportedById: ctx.user.id,
+        dueAt: dueFrom(now, wo.safetyCritical ? "URGENT" : "HIGH"),
+        now,
+        source: "pm_failed_check",
+        outOfUseStatusReason: (n) => `Check failed during ${wo.number}; repair ${n}`,
+        outOfUseDowntimeReason: (n) => `Check failed during ${wo.number} (${n})`,
+      });
+      correctiveCreated = repair.number;
+      await notify(tx, ctx, await managersToAlert(tx, wo, wo.safetyCritical), {
+        type: "workorder.reported",
+        title: `Fault found during maintenance: ${asset.assetTag}`,
+        body: `${repair.number} created from ${wo.number}`,
+        link: `/work-orders/${repair.id}`,
+        entityType: "work_order",
+        entityId: repair.id,
+      });
+    } else if (c.outcome === "NOT_REPAIRABLE") {
       if (asset.status !== "OUT_OF_SERVICE") {
         await setAssetStatus(tx, ctx, asset, "OUT_OF_SERVICE", wo.id, `Not repairable (${wo.number})`);
       }
-    } else if (asset.status === "OUT_OF_SERVICE" || asset.status === "UNDER_REPAIR") {
-      // Another open job that took the device out of use keeps it out.
+    } else if (
+      c.outcome !== "CHECKS_PASSED" &&
+      (asset.status === "OUT_OF_SERVICE" || asset.status === "UNDER_REPAIR")
+    ) {
+      // Stage 5: a repaired device returns to service on the technician's
+      // sign-off — unless another open job took it out of use, or a safety
+      // hold is open (setAssetStatus refuses; so does the database).
+      // Passed planned maintenance never changes the device status by itself.
       const blocking = await tx.workOrder.count({
         where: { assetId: asset.id, id: { not: wo.id }, status: { in: OPEN }, outOfUse: true },
       });
       if (!blocking && !asset.archivedAt) {
-        await setAssetStatus(tx, ctx, asset, "IN_SERVICE", wo.id, `Returned to service after ${wo.number}`);
-        await endDowntime(tx, asset.id);
-        returnedToService = true;
+        returnedToService = await setAssetStatus(
+          tx,
+          ctx,
+          asset,
+          "IN_SERVICE",
+          wo.id,
+          `Returned to service after ${wo.number}`,
+        );
+        if (returnedToService) await endDowntime(tx, asset.id);
       }
     }
+
+    // The PM occurrence is done (on time = by the due date + grace days, hospital date).
+    if (job.pmOccurrenceId) {
+      const occ = await tx.pmOccurrence.findUnique({
+        where: { id: job.pmOccurrenceId },
+        select: { id: true, dueOn: true, scheduleId: true, plan: { select: { graceDays: true } } },
+      });
+      if (occ) {
+        const doneOn = localToday(job.hospital.timezone, now);
+        await tx.pmOccurrence.update({
+          where: { id: occ.id },
+          data: {
+            status: "COMPLETED",
+            completedOn: new Date(`${doneOn}T00:00:00.000Z`),
+            onTime: isOnTime(fromDbDate(occ.dueOn), doneOn, occ.plan.graceDays),
+          },
+        });
+        await tx.pmSchedule.update({
+          where: { id: occ.scheduleId },
+          data: { lastDoneOn: new Date(`${doneOn}T00:00:00.000Z`), updatedById: ctx.user.id },
+        });
+      }
+    }
+
     await auditWO(tx, ctx, "workorder.completed", wo, {
       number: wo.number,
-      outcome: data.outcome,
-      functionalCheck: data.functionalCheck,
-      electricalSafetyCheck: data.electricalSafetyCheck,
+      outcome: c.outcome,
+      functionalCheck: c.functionalCheck,
+      electricalSafetyCheck: c.electricalSafetyCheck,
+      checklistItems: c.results.length || undefined,
+      testStandard: job.testStandardCode ? `${job.testStandardCode} ${job.testStandardVersion}` : undefined,
       signedOffBy: "assigned_technician",
       safetyCritical: wo.safetyCritical,
       returnedToService,
+      safetyHoldPlaced: safetyHoldPlaced || undefined,
+      correctiveCreated: correctiveCreated ?? undefined,
     });
     const reviewers = wo.safetyCritical ? await managersToAlert(tx, wo, false) : [];
     await notify(tx, ctx, [wo.reportedById, ...reviewers], {
       type: "workorder.completed",
       title: `${wo.number} completed${wo.safetyCritical ? " — safety-critical, please review" : ""}`,
-      body: data.outcome === "NOT_REPAIRABLE" ? "Device not repairable; it stays out of service." : undefined,
+      body: safetyHoldPlaced
+        ? `${DO_NOT_USE_LABEL}: repair and retest required.`
+        : c.outcome === "NOT_REPAIRABLE"
+          ? "Device not repairable; it stays out of service."
+          : c.outcome === "CHECKS_FAILED"
+            ? `A check failed; repair job ${correctiveCreated ?? ""} created.`
+            : undefined,
       link: `/work-orders/${wo.id}`,
       entityType: "work_order",
       entityId: wo.id,
     });
-    return { returnedToService };
+    return { returnedToService, safetyHoldPlaced };
   });
 }
 
@@ -816,6 +1001,42 @@ export async function reopenWorkOrder(ctx: AccessContext, input: unknown) {
   return withTenant(tenant(ctx), async (tx) => {
     const wo = await loadScoped(ctx, tx, data.id, "workorder.reopen");
     expectStatus(wo, ["COMPLETED"], "Only completed jobs can be reopened.");
+    const job = await tx.workOrder.findUniqueOrThrow({
+      where: { id: wo.id },
+      select: { pmOccurrenceId: true, safetyHoldId: true, type: true, checklist: true },
+    });
+    // A retest waiting for second-person approval goes back to "awaiting retest".
+    if (job.safetyHoldId && job.type === "SAFETY_TEST") {
+      const hold = await tx.safetyHold.findUnique({
+        where: { id: job.safetyHoldId },
+        select: { status: true, retestWorkOrderId: true },
+      });
+      if (hold?.status === "RELEASED" && hold.retestWorkOrderId === wo.id) {
+        throw new ValidationError("This retest led to an approved return to service and can no longer be reopened.");
+      }
+      if (hold?.status === "AWAITING_APPROVAL" && hold.retestWorkOrderId === wo.id) {
+        await tx.safetyHold.update({
+          where: { id: job.safetyHoldId },
+          data: { status: "AWAITING_RETEST", retestedById: null, retestedAt: null },
+        });
+        await tx.safetyHoldEvent.create({
+          data: {
+            organizationId: ctx.organization.id,
+            holdId: job.safetyHoldId,
+            kind: "RETEST_REOPENED",
+            workOrderId: wo.id,
+            note: data.reason,
+            actorId: ctx.user.id,
+          },
+        });
+      }
+    }
+    if (job.pmOccurrenceId) {
+      await tx.pmOccurrence.update({
+        where: { id: job.pmOccurrenceId },
+        data: { status: "WORK_ORDER_CREATED", completedOn: null, onTime: null },
+      });
+    }
     await tx.workOrder.update({
       where: { id: wo.id },
       data: {
@@ -836,7 +1057,9 @@ export async function reopenWorkOrder(ctx: AccessContext, input: unknown) {
       where: { id: wo.assetId },
       select: { id: true, status: true, assetTag: true },
     });
-    if (asset.status === "IN_SERVICE") {
+    // Reopening a repair takes the device back; planned maintenance (with a
+    // checklist) never changed the device status, so reopening it does not either.
+    if (asset.status === "IN_SERVICE" && job.checklist === null) {
       await setAssetStatus(tx, ctx, asset, "UNDER_REPAIR", wo.id, `Job reopened (${wo.number})`);
       await startDowntime(tx, ctx, asset.id, wo.id, `Job reopened (${wo.number})`);
     }
@@ -865,6 +1088,22 @@ export async function cancelWorkOrder(ctx: AccessContext, input: unknown) {
       throw new AuthorizationError("workorder.cancel");
     }
     expectStatus(wo, OPEN, "Only open jobs can be cancelled.");
+    const job = await tx.workOrder.findUniqueOrThrow({
+      where: { id: wo.id },
+      select: { pmOccurrenceId: true, safetyHoldId: true },
+    });
+    if (job.safetyHoldId) {
+      throw new ValidationError(
+        "This job belongs to a Failed Safety Test hold and cannot be cancelled. Sign it off as Not repairable if the device cannot be fixed.",
+      );
+    }
+    if (job.pmOccurrenceId) {
+      // Counted as not done in maintenance compliance.
+      await tx.pmOccurrence.update({
+        where: { id: job.pmOccurrenceId },
+        data: { status: "CANCELLED", note: data.reason },
+      });
+    }
     await tx.workOrder.update({
       where: { id: wo.id },
       data: {

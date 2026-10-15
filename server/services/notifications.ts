@@ -6,6 +6,7 @@
 import type { MembershipRole } from "../authz/roles";
 import { withTenant, type Tx } from "../db/tenant";
 import { requirePermission, type AccessContext } from "../authz/access";
+import type { RequestMeta } from "../audit/audit";
 import { parseInput } from "../validation";
 import { z } from "zod";
 
@@ -48,17 +49,31 @@ export type NewNotification = {
   entityId?: string;
 };
 
-/** Creates one notification per recipient (never the person who acted). */
+/** Whoever is acting: a signed-in person (AccessContext) or the PM scheduler. */
+type Sender = { user: { id: string }; organization: { id: string }; request?: RequestMeta };
+
+/**
+ * Creates one notification per recipient (never the person who acted).
+ * With `dedupeKey` (Stage 6 reminders), a recipient who already has a
+ * notification with that key gets nothing new, so retried runs never repeat
+ * a reminder (database UNIQUE (organisation, user, key)).
+ */
 export async function notify(
   tx: Tx,
-  ctx: AccessContext,
+  ctx: Sender,
   recipientIds: Iterable<string | null | undefined>,
-  n: NewNotification,
+  n: NewNotification & { dedupeKey?: string },
 ): Promise<number> {
-  const ids = [...new Set([...recipientIds].filter((id): id is string => Boolean(id) && id !== ctx.user.id))];
+  const ids = [
+    ...new Set(
+      [...recipientIds].filter(
+        (id): id is string => Boolean(id) && id !== ctx.user.id && !String(id).startsWith("system:"),
+      ),
+    ),
+  ];
   if (ids.length === 0) return 0;
   if (n.link && !/^\/[a-z]/.test(n.link)) throw new Error("Notification links must be in-app paths");
-  await tx.notification.createMany({
+  const r = await tx.notification.createMany({
     data: ids.map((userId) => ({
       organizationId: ctx.organization.id,
       userId,
@@ -68,9 +83,11 @@ export async function notify(
       link: n.link ?? null,
       entityType: n.entityType ?? null,
       entityId: n.entityId ?? null,
+      dedupeKey: n.dedupeKey?.slice(0, 200) ?? null,
     })),
+    skipDuplicates: Boolean(n.dedupeKey),
   });
-  return ids.length;
+  return r.count;
 }
 
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });

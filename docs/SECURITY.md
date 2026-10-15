@@ -108,6 +108,59 @@ The export uses the same scope and filters as the register screen, is capped at 
   - `workorder.completed` (outcome, checks, `signedOffBy: assigned_technician`), `workorder.reviewed`, `workorder.reopened`, `workorder.cancelled`, `workorder.access_denied`.
   - `asset.returned_to_service`, plus `asset.status_changed` with the work order id.
 
+## Preventive maintenance (Stage 6)
+
+- **Scope and RLS.**
+  - Ten new tables, all with Row-Level Security enabled **and forced**: `maintenance_plans`, `maintenance_plan_revisions`, `pm_schedules`, `pm_occurrences`, `pm_generation_runs`, `checklist_results`, `test_standards`, `test_standard_rules`, `safety_holds`, `safety_hold_events`.
+  - Composite foreign keys `(organization_id, x)` throughout. No DELETE grant for the app role. Column-level UPDATE grants.
+  - Schedules, occurrences, holds and reports are filtered by the asset's hospital/department (`assetScopeWhere` / `scopeSql`). Plans are visible org-wide or for the user's hospitals; only org-wide staff edit org-wide plans.
+  - A test checks that **every** table with `organization_id` has RLS enabled and forced.
+- **Permissions** (`server/authz/permissions.ts`):
+  - `pm.view`: everyone except Fault Reporters.
+  - `pm.manage` / `pm.generate`: Org Admin, Engineering Manager.
+  - `pm.approve`, `standards.verify` and `safety.release`: **Engineering Manager only** (qualified staff).
+  - `pm.report`: + Department Head, Auditor. `pm.export`: Org Admin, Engineering Manager, Auditor.
+  - `member.resetMfa`: Org Admin.
+- **Server-side validation.** Every referenced asset, model, category, hospital, default assignee and test standard is checked against the organisation and the user's scope. Assignees on generated jobs are re-checked for each asset's department.
+- **Interval rules** are enforced in the service **and** by database CHECKs:
+  - a reference or a justification is always present;
+  - manufacturer intervals only for models;
+  - only an approved plan can be active.
+- **Duplicate prevention.**
+  - `UNIQUE (schedule_id, due_on)` on occurrences, and `UNIQUE (organization_id, pm_occurrence_id)` on work orders.
+  - Each schedule is processed in its own transaction under `SELECT … FOR UPDATE`, and is advanced only after the occurrence and its job are recorded.
+  - Reminders carry a `dedupe_key` with `UNIQUE (organization_id, user_id, dedupe_key)`.
+  - Tests cover retries and three concurrent runs.
+- **Failures** are recorded on the occurrence (`FAILED`, attempts, a short message) in a separate transaction, audited as `pm.generation_failed`, and reported to managers once. Internal error details go to the server log only, never to the database or screen.
+- **Scheduler endpoint** `POST /api/cron/pm-generate`:
+  - off unless `CRON_SECRET` (32+ characters) is set;
+  - bearer token compared in constant time; refusals audited as `pm.scheduler_denied`;
+  - responses contain counts only.
+  - It runs with the **restricted app role**. The only cross-tenant step is the `SECURITY DEFINER` function `app_pm_organizations()`, which returns organisation ids that have active plans; all work then happens inside each organisation under RLS.
+- **Failed Safety Test — Do Not Use** (decision of 15 Oct 2026):
+  - A failed electrical safety item places a hold, sets the device Out of service and starts downtime.
+  - It creates a linked repair job and then a retest.
+  - Release requires `safety.release`, a passed retest and a **different person** from the retester. This is checked in the service and by a database CHECK (`released_by <> retested_by`).
+  - A `SECURITY DEFINER` trigger on `assets` refuses `IN_SERVICE` while any hold is open, whoever asks.
+  - Hold jobs cannot be cancelled. The hold history (`safety_hold_events`) is append-only.
+  - **Exceptions are not available.** They need a written, authorised policy first.
+- **Records preserved.** Each job stores a copy of the approved checklist, the plan version and the test standard code and version. Plan revisions, checklist results and hold events are append-only (trigger, even for the owner). Reopened jobs record a new attempt.
+- **Prefetch safety.** The PM CSV export is a plain link, so viewing the report page never triggers an export. Every export is audited (`pm.report_exported`).
+- **MFA (decision 4).**
+  - Required for Engineering Managers, Org Admins and platform admins (unchanged), and **encouraged** for every other role with a banner.
+  - Better Auth stores the TOTP secret and backup codes **encrypted** (symmetric encryption keyed by `BETTER_AUTH_SECRET`); a test checks the database never holds them in plain text.
+  - "Trust this device" is refused, so a code is required at every sign-in.
+  - New audit events: `auth.mfa_enrolled`, `auth.mfa_verified`, `auth.mfa_verify_failed`, `auth.mfa_backup_code_used`, `auth.mfa_backup_codes_regenerated`, `auth.password_changed`, `auth.password_reset`, `auth.mfa_reset_by_admin`. No code, secret or backup code is ever logged; a test checks this.
+  - **Recovery:**
+    - use a backup code, then set up again;
+    - users can create new backup codes (password required);
+    - if both are lost, an Org Admin resets the authenticator after confirming identity outside the app. The reason is recorded, the person is signed out everywhere, admins cannot reset themselves, and platform admins are excluded.
+- **Audit events added:**
+  - `pm.plan_created`, `pm.plan_updated`, `pm.plan_approved`, `pm.interval_reviewed`, `pm.plan_paused`, `pm.plan_resumed`, `pm.plan_archived`;
+  - `pm.assets_enrolled`, `pm.schedule_ended`, `pm.schedules_ended`, `pm.workorder_generated`, `pm.generation_failed`, `pm.generation_run`, `pm.access_denied`, `pm.report_exported`, `pm.scheduler_denied`;
+  - `standard.created`, `standard.verified`, `standard.archived`, `standard.rule_set`, `standard.rule_removed`, `catalog.manufacturer_interval_set`;
+  - `safety.hold_placed`, `safety.hold_failure_added`, `safety.retest_created`, `safety.retest_passed`, `safety.retest_failed`, `safety.hold_released`, `safety.release_rejected`, `safety.access_denied`.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.
@@ -140,7 +193,7 @@ The export uses the same scope and filters as the register screen, is capped at 
 2. **No email provider.** Password reset works only in development (link printed to the console); in production it fails safely. New members get a temporary password shown once to the administrator instead of an invitation email, and are not yet forced to change it.
 3. **Rate limiting is in memory** — resets on restart and is per server instance. Use database or Redis storage before running more than one instance.
 4. **CSP allows inline scripts** (`'unsafe-inline'`), needed by Next.js without nonces. Move to a nonce-based policy before the pilot.
-5. **No account lockout UI or admin MFA reset.** Better Auth locks second-factor attempts after repeated failures; there is no screen yet for an admin to reset a lost authenticator (backup codes are the fallback).
+5. **No account lockout UI.** Better Auth locks second-factor attempts after repeated failures. (Admin MFA reset was added in Stage 6.)
 6. **Owner credentials are powerful.** They can disable the audit trigger. In production restrict them to the deployment pipeline and a break-glass procedure, and ship audit logs to separate write-once storage.
 7. **Sign-in audit events have no organisation**, so organisation admins cannot see them in the app yet.
 8. **No data retention or deletion jobs** yet; retention periods are still an open decision.
@@ -152,9 +205,13 @@ The export uses the same scope and filters as the register screen, is capped at 
 14. **The approval rule depends on correct memberships.** If a NUM account is missing or wrongly scoped, the fallback approvers (Engineering Manager, Facility Manager) can decide. Keep Department Head scopes accurate.
 15. **No virus scanning of uploads.** Photos are decoded and re-encoded, which defeats files disguised as images, but there is no antivirus scan. Documents arrive in Stage 8.
 16. **Self-sign-off.** Technicians sign off their own repairs, including on safety-critical devices (decision of 15 Oct 2026). Manager review afterwards is optional and does not block return to service.
-17. **No scheduled escalation yet.** Overdue jobs are shown as Overdue on screens and the dashboard, but nobody is notified automatically when a target passes (this needs a background job runner).
+17. **Corrective jobs have no scheduled escalation yet.** Overdue PM jobs get in-app reminders from the daily PM run (Stage 6); overdue repair jobs are only shown as Overdue on screens.
 18. **Photos are stored in the database** (decision of 15 Oct 2026). Move them to encrypted object storage when hosting is chosen; database backups grow with photos.
 19. **Notifications are in-app only.** Nobody is alerted outside the app until an email or SMS provider is added.
+20. **The PM scheduler must be set up when deploying.** Until a daily cron job or the protected endpoint is configured, PM work orders are only created when someone runs `npm run pm:generate` or presses **Run generation now**.
+21. **Safety-hold exceptions are not available.** A held device can only return to service through repair, a passed retest and second-person approval. If a hospital's policy allows authorised exceptions, that process must be designed and approved first.
+22. **Test standard limits are configured by people.** The seeded IEC 62353 / AS/NZS 3551 entries and checklist limits are fictional demo values. Qualified staff must verify real procedures, editions and limits for each jurisdiction. BiomedIntel.ai does not certify compliance.
+23. **The second-person rule needs two Engineering Managers in scope.** A hospital with only one Engineering Manager must have someone else do the retest, or add a second manager. Approvers can be in any hospital that can see the device.
 
 ## Backups and environments
 

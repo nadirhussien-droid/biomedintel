@@ -35,6 +35,13 @@ export const OUTCOME_LABELS: Record<(typeof OUTCOMES)[number], string> = {
   NOT_REPAIRABLE: "Not repairable — device stays out of service",
 };
 
+/** Every outcome, including the Stage 6 outcomes for planned work and tests. */
+export const ANY_OUTCOME_LABELS: Record<string, string> = {
+  ...OUTCOME_LABELS,
+  CHECKS_PASSED: "Checks passed",
+  CHECKS_FAILED: "Checks failed — device taken out of use",
+};
+
 export const CHECKS = ["PASS", "FAIL", "NOT_APPLICABLE"] as const;
 export const CHECK_LABELS: Record<(typeof CHECKS)[number], string> = {
   PASS: "Pass",

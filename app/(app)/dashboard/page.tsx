@@ -4,18 +4,13 @@ import { requireAccess } from "@/server/auth/session";
 import { getFoundationSummary } from "@/server/services/dashboard";
 import { getAssetStatusCounts } from "@/server/services/assets";
 import { getWorkOrderCounts } from "@/server/services/work-orders";
+import { getDashboardPmKpis } from "@/server/services/pm-schedule";
+import { formatDateOnly } from "@/lib/pm/dates";
 import { ROLE_LABELS } from "@/server/authz/roles";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 
 export const metadata: Metadata = { title: "Dashboard" };
-
-// Fictional figures that preview the maintenance modules (Stages 5–7).
-// They are NOT read from the database and are labelled as such on screen.
-const DEMO_KPIS = [
-  { label: "PM completion · October", value: "90%", note: "371 of 412 done · 29 overdue" },
-  { label: "Safety tests due (30 days)", value: "186", note: "4 failed tests need action" },
-];
 
 function Stat({ label, value, note }: { label: string; value: string | number; note?: string }) {
   return (
@@ -29,10 +24,11 @@ function Stat({ label, value, note }: { label: string; value: string | number; n
 
 export default async function DashboardPage() {
   const ctx = await requireAccess();
-  const [summary, assets, jobs] = await Promise.all([
+  const [summary, assets, jobs, pm] = await Promise.all([
     getFoundationSummary(ctx),
     getAssetStatusCounts(ctx, ctx.selection.hospitalId),
     getWorkOrderCounts(ctx, ctx.selection.hospitalId),
+    getDashboardPmKpis(ctx, { hospitalId: ctx.selection.hospitalId }),
   ]);
   const selectedHospital = ctx.hospitals.find((h) => h.id === ctx.selection.hospitalId);
 
@@ -121,33 +117,41 @@ export default async function DashboardPage() {
         </Card>
       ) : null}
 
-      <section aria-labelledby="demo-heading" className="flex flex-col gap-4">
-        <div className="bg-warn-bg flex flex-wrap items-center gap-3 rounded-md border border-[#e8c98c] px-4 py-3 text-sm text-[#6b3f00]">
-          <Badge tone="demo">Fictional demonstration data</Badge>
-          <span id="demo-heading">
-            The maintenance figures below are invented examples to preview later stages. They are not your
-            hospital&apos;s data.
-          </span>
-        </div>
-        <div className="grid gap-6 sm:grid-cols-2">
-          {DEMO_KPIS.map((k) => (
-            <Card key={k.label}>
-              <div className="flex items-start justify-between gap-2">
-                <Stat label={k.label} value={k.value} note={k.note} />
-                <Badge tone="warn">Demo</Badge>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <Card>
-        <CardTitle>Coming next</CardTitle>
-        <p className="text-ink-muted text-sm">
-          Stage 6 adds preventive maintenance schedules, electrical safety tests and calibration records. Inventory,
-          IntellKnowledge, IntellAssist and reports follow in later stages.
-        </p>
-      </Card>
+      {pm ? (
+        <Card>
+          <CardTitle
+            action={
+              <span className="flex items-center gap-3">
+                <Badge tone="ok">Live data</Badge>
+                <Link href="/maintenance" className="text-sm font-semibold text-teal-700 hover:underline">
+                  Open maintenance
+                </Link>
+              </span>
+            }
+          >
+            Preventive maintenance
+          </CardTitle>
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
+            <Stat
+              label={`PM compliance · ${formatDateOnly(pm.period.from)} to today`}
+              value={pm.compliance === null ? "—" : `${pm.compliance}%`}
+              note={pm.due ? `${pm.onTime} of ${pm.due} due done on time` : "Nothing due yet this month"}
+            />
+            <Stat label="PM overdue" value={pm.overdue} note={`${pm.dueToday} due today`} />
+            <Stat
+              label="Safety tests due (30 days)"
+              value={pm.safetyTestsDue30}
+              note="Electrical safety items, incl. overdue"
+            />
+            <Stat label="Failed Safety Test holds" value={pm.openHolds} note="Do Not Use until approved" />
+            <Stat label="Generation failures" value={pm.failedGeneration} note="Work orders not yet created" />
+          </div>
+          <p className="text-ink-muted text-xs">
+            Compliance = maintenance due this month (up to today) and signed off by its due date plus grace days,
+            divided by all maintenance due. A generated work order does not count as done.
+          </p>
+        </Card>
+      ) : null}
     </>
   );
 }

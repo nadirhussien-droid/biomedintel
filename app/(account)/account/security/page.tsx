@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireUser } from "@/server/auth/session";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { MfaSetup } from "./mfa-setup";
+import { BackupCodes } from "./backup-codes";
 import { SignOutButton } from "../../sign-out-button";
 
 export const metadata: Metadata = { title: "Account security" };
@@ -39,6 +40,15 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
               Two-step verification is on. You will be asked for a code from your authenticator app each time you sign
               in.
             </p>
+            <div className="border-line flex flex-col gap-2 rounded-md border p-3">
+              <h2 className="font-semibold">Backup codes</h2>
+              <p className="text-ink-muted">
+                Each backup code works once, if you cannot use your phone. Lost your phone? Sign in with a backup code,
+                then set up the authenticator again. Lost both? Ask your Organization Administrator to reset your
+                two-step verification after confirming who you are.
+              </p>
+              <BackupCodes />
+            </div>
             <Link href="/dashboard" className="font-semibold text-teal-700 hover:underline">
               Continue to the dashboard
             </Link>

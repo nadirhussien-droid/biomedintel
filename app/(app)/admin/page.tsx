@@ -7,7 +7,7 @@ import { listAuditLogs, listHospitals, listMembers } from "@/server/services/org
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { archiveDepartmentAction, archiveHospitalAction } from "./actions";
-import { AddMemberForm, ChangeRoleForm, CreateDepartmentForm, CreateHospitalForm } from "./forms";
+import { AddMemberForm, ChangeRoleForm, CreateDepartmentForm, CreateHospitalForm, ResetMfaForm } from "./forms";
 
 export const metadata: Metadata = { title: "User and Organization Administration" };
 
@@ -137,7 +137,15 @@ export default async function AdminPage() {
                           .join("; ") || "No hospitals"}
                   </td>
                   <td className="px-3 py-2.5">
-                    {m.user.twoFactorEnabled ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>}
+                    <div className="flex flex-col items-start gap-1">
+                      {m.user.twoFactorEnabled ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>}
+                      {m.user.twoFactorEnabled &&
+                      can(ctx, "member.resetMfa") &&
+                      m.id !== ctx.membershipId &&
+                      m.status === "ACTIVE" ? (
+                        <ResetMfaForm membershipId={m.id} name={m.user.name} />
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <Badge tone={m.status === "ACTIVE" ? "ok" : "neutral"}>{m.status.toLowerCase()}</Badge>

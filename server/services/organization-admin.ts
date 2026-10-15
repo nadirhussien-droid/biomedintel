@@ -18,6 +18,7 @@ import {
   changeMemberRoleSchema,
   createDepartmentSchema,
   createHospitalSchema,
+  resetMfaSchema,
 } from "@/lib/validation/admin";
 import type { MembershipRole } from "../authz/roles";
 
@@ -235,6 +236,55 @@ export async function changeMemberRole(ctx: AccessContext, input: unknown) {
       request: ctx.request,
     });
     return updated;
+  });
+}
+
+/**
+ * MFA recovery (Stage 6, decision of 15 Oct 2026). For a member who has lost
+ * BOTH their authenticator and their backup codes. An Organization
+ * Administrator — never the person themselves — removes their authenticator
+ * after checking who they are (outside the app, e.g. in person). This:
+ *   • deletes the encrypted authenticator secret and backup codes;
+ *   • signs the person out everywhere;
+ *   • audits who did it, for whom and why.
+ * At their next sign-in the person must set up a new authenticator before
+ * they can do anything (privileged roles), or is encouraged to (other roles).
+ */
+export async function resetMemberMfa(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "member.resetMfa", { entityType: "membership" });
+  const data = parseInput(resetMfaSchema, input);
+  if (data.membershipId === ctx.membershipId) {
+    throw new ValidationError(
+      "You cannot reset your own two-step verification. Ask another Organization Administrator.",
+    );
+  }
+  return withTenant(tenant(ctx), async (tx) => {
+    const target = await tx.membership.findUnique({
+      where: { id: data.membershipId },
+      select: {
+        id: true,
+        status: true,
+        userId: true,
+        user: { select: { twoFactorEnabled: true, platformRole: true } },
+      },
+    });
+    if (!target || target.status !== "ACTIVE") throw new NotFoundError("Member");
+    if (target.user.platformRole)
+      throw new ValidationError("Platform administrators are recovered by the platform team.");
+    if (!target.user.twoFactorEnabled) throw new ValidationError("This person has not set up two-step verification.");
+    await tx.twoFactor.deleteMany({ where: { userId: target.userId } });
+    await tx.user.update({ where: { id: target.userId }, data: { twoFactorEnabled: false } });
+    const sessions = await tx.session.deleteMany({ where: { userId: target.userId } });
+    await audit(tx, {
+      organizationId: ctx.organization.id,
+      actorUserId: ctx.user.id,
+      action: "auth.mfa_reset_by_admin",
+      entityType: "user",
+      entityId: target.userId,
+      metadata: { membershipId: target.id, reason: data.reason, sessionsEnded: sessions.count },
+      request: ctx.request,
+    });
+    return { sessionsEnded: sessions.count };
   });
 }
 

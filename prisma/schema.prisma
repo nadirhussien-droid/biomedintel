@@ -4,7 +4,10 @@
 //   Stage 3: tenancy, people and access, authentication and audit.
 //   Stage 4: equipment — locations, manufacturers, categories, models, assets,
 //            asset status history and warranties.
-// Maintenance, inventory, documents and AI tables come in later stages.
+//   Stage 5: work orders, timeline, work log, photos, downtime, notifications.
+//   Stage 6: preventive maintenance plans and schedules, checklist results,
+//            test standards and safety holds (failed safety tests).
+// Inventory, documents and AI tables come in later stages.
 //
 // Rules that apply to every tenant table (see prisma/migrations/*_security):
 //   • `organization_id` on every row, with Row-Level Security (RLS) policies.
@@ -146,6 +149,8 @@ enum WorkOrderOutcome {
   REPAIRED
   NO_FAULT_FOUND
   NOT_REPAIRABLE
+  CHECKS_PASSED // Stage 6: planned maintenance or test done, every check passed
+  CHECKS_FAILED // Stage 6: planned maintenance or test done, one or more checks failed
 
   @@map("work_order_outcome")
 }
@@ -156,6 +161,96 @@ enum CheckResult {
   NOT_APPLICABLE
 
   @@map("check_result")
+}
+
+// ─── Preventive maintenance (Stage 6) ────────────────────────────────────────
+
+enum MaintenancePlanStatus {
+  DRAFT // being written; never generates work
+  ACTIVE // approved; generates work orders
+  PAUSED // temporarily stopped; no new work orders
+  ARCHIVED // retired; kept for history
+
+  @@map("maintenance_plan_status")
+}
+
+/// What a plan applies to. A plan never applies to a whole category of
+/// different makes unless its interval comes from a requirement.
+enum PlanTargetKind {
+  ASSET
+  MODEL
+  CATEGORY
+
+  @@map("plan_target_kind")
+}
+
+enum IntervalUnit {
+  DAY
+  WEEK
+  MONTH
+
+  @@map("interval_unit")
+}
+
+/// Where a maintenance interval comes from (decision of 15 Oct 2026, in
+/// priority order). Every plan records one, with its reference or justification.
+enum IntervalSource {
+  REGULATORY_REQUIREMENT
+  ORGANIZATIONAL_REQUIREMENT
+  MANUFACTURER
+  ORGANIZATION_DEFINED
+
+  @@map("interval_source")
+}
+
+enum PlanRevisionKind {
+  APPROVAL // a version of the plan was approved and took effect
+  REVIEW // the interval was reviewed and confirmed without change
+
+  @@map("plan_revision_kind")
+}
+
+enum PmScheduleStatus {
+  ACTIVE
+  ENDED
+
+  @@map("pm_schedule_status")
+}
+
+enum PmOccurrenceStatus {
+  WORK_ORDER_CREATED // a work order exists and is open
+  COMPLETED // the work order was signed off
+  CANCELLED // the work order was cancelled
+  MISSED // the due date passed without a work order (catch-up)
+  FAILED // generation failed; retried on the next run
+  SKIPPED // not generated, with the reason (e.g. asset decommissioned)
+
+  @@map("pm_occurrence_status")
+}
+
+enum GenerationTrigger {
+  MANUAL
+  SCHEDULER
+
+  @@map("generation_trigger")
+}
+
+enum GenerationRunStatus {
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_FAILURES
+
+  @@map("generation_run_status")
+}
+
+/// Safety hold after a failed safety test (decision of 15 Oct 2026).
+enum SafetyHoldStatus {
+  AWAITING_REPAIR
+  AWAITING_RETEST
+  AWAITING_APPROVAL
+  RELEASED
+
+  @@map("safety_hold_status")
 }
 
 enum AuditOutcome {
@@ -198,6 +293,16 @@ model Organization {
   downtimeEvents      DowntimeEvent[]
   notifications       Notification[]
   workOrderCounters   WorkOrderCounter[]
+  maintenancePlans    MaintenancePlan[]
+  planRevisions       MaintenancePlanRevision[]
+  pmSchedules         PmSchedule[]
+  pmOccurrences       PmOccurrence[]
+  pmGenerationRuns    PmGenerationRun[]
+  checklistResults    ChecklistResult[]
+  testStandards       TestStandard[]
+  testStandardRules   TestStandardRule[]
+  safetyHolds         SafetyHold[]
+  safetyHoldEvents    SafetyHoldEvent[]
 
   @@map("organizations")
 }
@@ -209,17 +314,21 @@ model Hospital {
   name           String
   code           String // short code, unique inside the organisation, e.g. "RGH"
   timezone       String       @default("Africa/Nairobi")
+  /// ISO 3166-1 alpha-2 country of the site (Stage 6: test standard by jurisdiction).
+  country        String?      @db.Char(2)
   status         RecordStatus @default(ACTIVE)
   archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(6)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  departments  Department[]
-  scopes       MembershipScope[]
-  locations    Location[]
-  assets       Asset[]
-  workOrders   WorkOrder[]
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  departments   Department[]
+  scopes        MembershipScope[]
+  locations     Location[]
+  assets        Asset[]
+  workOrders    WorkOrder[]
+  plans         MaintenancePlan[]
+  standardRules TestStandardRule[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id]) // target for composite foreign keys
@@ -322,10 +431,12 @@ model EquipmentCategory {
   createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  parent       EquipmentCategory?  @relation("CategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
-  children     EquipmentCategory[] @relation("CategoryTree")
-  models       EquipmentModel[]
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent        EquipmentCategory?  @relation("CategoryTree", fields: [organizationId, parentId], references: [organizationId, id], onDelete: Restrict)
+  children      EquipmentCategory[] @relation("CategoryTree")
+  models        EquipmentModel[]
+  plans         MaintenancePlan[]
+  standardRules TestStandardRule[]
 
   @@unique([organizationId, id])
   @@map("equipment_categories")
@@ -333,22 +444,28 @@ model EquipmentCategory {
 
 /// A make and model, e.g. manufacturer X, model "IP-200".
 model EquipmentModel {
-  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId    String       @map("organization_id") @db.Uuid
-  manufacturerId    String       @map("manufacturer_id") @db.Uuid
-  categoryId        String       @map("category_id") @db.Uuid
-  modelName         String       @map("model_name")
-  expectedLifeYears Int?         @map("expected_life_years")
-  status            RecordStatus @default(ACTIVE)
-  archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(6)
-  createdById       String?      @map("created_by")
-  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId              String        @map("organization_id") @db.Uuid
+  manufacturerId              String        @map("manufacturer_id") @db.Uuid
+  categoryId                  String        @map("category_id") @db.Uuid
+  modelName                   String        @map("model_name")
+  expectedLifeYears           Int?          @map("expected_life_years")
+  /// Manufacturer-recommended PM interval for this model (Stage 6), with the
+  /// document it comes from. NULL = no manufacturer guidance recorded.
+  manufacturerPmIntervalCount Int?          @map("manufacturer_pm_interval_count")
+  manufacturerPmIntervalUnit  IntervalUnit? @map("manufacturer_pm_interval_unit")
+  manufacturerPmReference     String?       @map("manufacturer_pm_reference")
+  status                      RecordStatus  @default(ACTIVE)
+  archivedAt                  DateTime?     @map("archived_at") @db.Timestamptz(6)
+  createdById                 String?       @map("created_by")
+  createdAt                   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   manufacturer Manufacturer      @relation(fields: [organizationId, manufacturerId], references: [organizationId, id], onDelete: Restrict)
   category     EquipmentCategory @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
   assets       Asset[]
+  plans        MaintenancePlan[]
 
   @@unique([organizationId, id])
   @@index([organizationId, categoryId])
@@ -398,6 +515,10 @@ model Asset {
   lifecycleEvents LifecycleEvent[]
   workOrders      WorkOrder[]
   downtimeEvents  DowntimeEvent[]
+  plans           MaintenancePlan[]
+  pmSchedules     PmSchedule[]
+  pmOccurrences   PmOccurrence[]
+  safetyHolds     SafetyHold[]
 
   @@unique([organizationId, assetTag])
   @@unique([organizationId, hospitalId, inventoryNumber])
@@ -520,26 +641,46 @@ model WorkOrder {
   cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   cancelReason          String?           @map("cancel_reason")
   reopenCount           Int               @default(0) @map("reopen_count")
+  /// Stage 6: the PM occurrence this job was generated for (one job per occurrence).
+  pmOccurrenceId        String?           @map("pm_occurrence_id") @db.Uuid
+  /// Stage 6: the approved plan version whose checklist this job uses.
+  planRevisionId        String?           @map("plan_revision_id") @db.Uuid
+  /// Stage 6: checklist copied from the approved plan version (kept even if the plan changes).
+  checklist             Json?
+  /// Stage 6: test standard and version that apply to this job (copied, so later changes never rewrite history).
+  testStandardId        String?           @map("test_standard_id") @db.Uuid
+  testStandardCode      String?           @map("test_standard_code")
+  testStandardVersion   String?           @map("test_standard_version")
+  /// Stage 6: the safety hold this repair or retest job belongs to.
+  safetyHoldId          String?           @map("safety_hold_id") @db.Uuid
   updatedById           String?           @map("updated_by")
   createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  asset         Asset                @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
-  hospital      Hospital             @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
-  department    Department           @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
-  events        WorkOrderEvent[]
-  tasks         WorkOrderTask[]
-  attachments   Attachment[]
-  downtime      DowntimeEvent[]
-  statusChanges AssetStatusHistory[]
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset            Asset                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  hospital         Hospital                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  department       Department               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
+  events           WorkOrderEvent[]
+  tasks            WorkOrderTask[]
+  attachments      Attachment[]
+  downtime         DowntimeEvent[]
+  statusChanges    AssetStatusHistory[]
+  pmOccurrence     PmOccurrence?            @relation("OccurrenceWorkOrder", fields: [organizationId, pmOccurrenceId], references: [organizationId, id], onDelete: Restrict)
+  planRevision     MaintenancePlanRevision? @relation(fields: [organizationId, planRevisionId], references: [organizationId, id], onDelete: Restrict)
+  testStandard     TestStandard?            @relation(fields: [organizationId, testStandardId], references: [organizationId, id], onDelete: Restrict)
+  safetyHold       SafetyHold?              @relation("HoldWorkOrders", fields: [organizationId, safetyHoldId], references: [organizationId, id], onDelete: Restrict)
+  checklistResults ChecklistResult[]
+  holdsFailed      SafetyHold[]             @relation("HoldFailedWorkOrder")
 
   @@unique([organizationId, number])
   @@unique([organizationId, id])
+  @@unique([organizationId, pmOccurrenceId]) // one job per PM occurrence
   @@index([organizationId, status, priority])
   @@index([organizationId, assignedToId, status])
   @@index([organizationId, assetId, status])
   @@index([organizationId, hospitalId, departmentId, status])
+  @@index([organizationId, type, status])
   @@map("work_orders")
 }
 
@@ -651,12 +792,353 @@ model Notification {
   link           String?
   readAt         DateTime? @map("read_at") @db.Timestamptz(6)
   emailedAt      DateTime? @map("emailed_at") @db.Timestamptz(6)
+  /// Stage 6: reminders carry a key so a retried run never sends the same one twice.
+  dedupeKey      String?   @map("dedupe_key")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
+  @@unique([organizationId, userId, dedupeKey])
   @@index([organizationId, userId, readAt])
   @@map("notifications")
+}
+
+// ─── Preventive maintenance (Stage 6) ────────────────────────────────────────
+// Business rules (interval limits, source references, approval before use,
+// one active schedule per asset and type, append-only history, the safety
+// hold that blocks "In service") live in *_preventive_maintenance_security.
+
+/// A reusable maintenance procedure with its interval and checklist.
+/// The plan row is the WORKING COPY; work is always generated from the latest
+/// APPROVED revision, so an edit never changes jobs until it is approved.
+model MaintenancePlan {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId       String                @map("organization_id") @db.Uuid
+  /// NULL = every hospital in the organisation; otherwise only this hospital.
+  hospitalId           String?               @map("hospital_id") @db.Uuid
+  name                 String
+  description          String?
+  workType             WorkOrderType         @default(PREVENTIVE) @map("work_type")
+  targetKind           PlanTargetKind        @map("target_kind")
+  assetId              String?               @map("asset_id") @db.Uuid
+  modelId              String?               @map("model_id") @db.Uuid
+  categoryId           String?               @map("category_id") @db.Uuid
+  intervalCount        Int                   @map("interval_count")
+  intervalUnit         IntervalUnit          @map("interval_unit")
+  intervalSource       IntervalSource        @map("interval_source")
+  /// The requirement, manufacturer document or clause the interval comes from.
+  sourceReference      String?               @map("source_reference")
+  /// Why the organisation chose this interval (required for ORGANIZATION_DEFINED).
+  justification        String?
+  startsOn             DateTime              @map("starts_on") @db.Date
+  endsOn               DateTime?             @map("ends_on") @db.Date
+  /// Days before the due date that the work order is created.
+  leadDays             Int                   @default(14) @map("lead_days")
+  /// Days after the due date that still count as "on time".
+  graceDays            Int                   @default(0) @map("grace_days")
+  estimatedMinutes     Int?                  @map("estimated_minutes")
+  defaultAssigneeId    String?               @map("default_assignee_id")
+  requiredCompetency   String?               @map("required_competency")
+  priority             WorkOrderPriority     @default(MEDIUM)
+  documentReference    String?               @map("document_reference")
+  instructions         String?
+  checklist            Json
+  status               MaintenancePlanStatus @default(DRAFT)
+  /// The approved version used for new work orders (NULL until first approval).
+  approvedRevisionId   String?               @map("approved_revision_id") @db.Uuid
+  /// The working copy differs from the approved version.
+  hasUnapprovedChanges Boolean               @default(true) @map("has_unapproved_changes")
+  nextReviewOn         DateTime?             @map("next_review_on") @db.Date
+  pausedAt             DateTime?             @map("paused_at") @db.Timestamptz(6)
+  pausedById           String?               @map("paused_by")
+  pauseReason          String?               @map("pause_reason")
+  archivedAt           DateTime?             @map("archived_at") @db.Timestamptz(6)
+  archivedById         String?               @map("archived_by")
+  createdById          String                @map("created_by")
+  updatedById          String?               @map("updated_by")
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospital         Hospital?                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  asset            Asset?                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  model            EquipmentModel?           @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
+  category         EquipmentCategory?        @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  approvedRevision MaintenancePlanRevision?  @relation("PlanApprovedRevision", fields: [organizationId, approvedRevisionId], references: [organizationId, id], onDelete: Restrict)
+  revisions        MaintenancePlanRevision[] @relation("PlanRevisions")
+  schedules        PmSchedule[]
+  occurrences      PmOccurrence[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, approvedRevisionId])
+  @@index([organizationId, status])
+  @@index([organizationId, workType])
+  @@map("maintenance_plans")
+}
+
+/// Approval and review history of a plan. Append-only. Each APPROVAL row is a
+/// full copy of the settings that took effect.
+model MaintenancePlanRevision {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String           @map("organization_id") @db.Uuid
+  planId          String           @map("plan_id") @db.Uuid
+  revisionNo      Int              @map("revision_no")
+  kind            PlanRevisionKind
+  intervalCount   Int              @map("interval_count")
+  intervalUnit    IntervalUnit     @map("interval_unit")
+  intervalSource  IntervalSource   @map("interval_source")
+  sourceReference String?          @map("source_reference")
+  justification   String?
+  checklist       Json
+  /// Every other plan setting at approval time (name, priority, lead days …).
+  snapshot        Json
+  effectiveFrom   DateTime         @map("effective_from") @db.Date
+  approvedById    String           @map("approved_by")
+  approvedAt      DateTime         @default(now()) @map("approved_at") @db.Timestamptz(6)
+  note            String?
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan         MaintenancePlan  @relation("PlanRevisions", fields: [organizationId, planId], references: [organizationId, id], onDelete: Restrict)
+  currentFor   MaintenancePlan? @relation("PlanApprovedRevision")
+  workOrders   WorkOrder[]
+  occurrences  PmOccurrence[]
+
+  @@unique([organizationId, id])
+  @@unique([planId, revisionNo])
+  @@map("maintenance_plan_revisions")
+}
+
+/// One asset enrolled in one plan: the fixed series of due dates.
+/// Due date n = anchor_on + n × interval (month steps clamp to month end).
+model PmSchedule {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  planId         String           @map("plan_id") @db.Uuid
+  assetId        String           @map("asset_id") @db.Uuid
+  /// Copied from the plan: an asset has at most one live schedule per type.
+  workType       WorkOrderType    @map("work_type")
+  status         PmScheduleStatus @default(ACTIVE)
+  anchorOn       DateTime         @map("anchor_on") @db.Date
+  /// Index of the next due date in the series (0 = anchor_on).
+  nextSeq        Int              @default(0) @map("next_seq")
+  nextDueOn      DateTime         @map("next_due_on") @db.Date
+  lastDoneOn     DateTime?        @map("last_done_on") @db.Date
+  endedAt        DateTime?        @map("ended_at") @db.Timestamptz(6)
+  endReason      String?          @map("end_reason")
+  createdById    String           @map("created_by")
+  updatedById    String?          @map("updated_by")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan         MaintenancePlan @relation(fields: [organizationId, planId], references: [organizationId, id], onDelete: Restrict)
+  asset        Asset           @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  occurrences  PmOccurrence[]
+
+  @@unique([organizationId, id])
+  @@unique([planId, assetId])
+  @@index([organizationId, status, nextDueOn])
+  @@index([organizationId, assetId])
+  @@map("pm_schedules")
+}
+
+/// One due date of one schedule. UNIQUE (schedule, due date) is the
+/// duplicate guard: a due date can only ever have one row, and
+/// work_orders.pm_occurrence_id is UNIQUE, so it can only ever have one job.
+model PmOccurrence {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  scheduleId     String             @map("schedule_id") @db.Uuid
+  planId         String             @map("plan_id") @db.Uuid
+  assetId        String             @map("asset_id") @db.Uuid
+  revisionId     String             @map("revision_id") @db.Uuid
+  seq            Int
+  dueOn          DateTime           @map("due_on") @db.Date
+  status         PmOccurrenceStatus
+  generatedAt    DateTime?          @map("generated_at") @db.Timestamptz(6)
+  attempts       Int                @default(0)
+  lastError      String?            @map("last_error")
+  lastAttemptAt  DateTime?          @map("last_attempt_at") @db.Timestamptz(6)
+  completedOn    DateTime?          @map("completed_on") @db.Date
+  /// Completed on or before due date + grace days (hospital local date).
+  onTime         Boolean?           @map("on_time")
+  note           String?
+  runId          String?            @map("run_id") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  schedule     PmSchedule              @relation(fields: [organizationId, scheduleId], references: [organizationId, id], onDelete: Restrict)
+  plan         MaintenancePlan         @relation(fields: [organizationId, planId], references: [organizationId, id], onDelete: Restrict)
+  asset        Asset                   @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  revision     MaintenancePlanRevision @relation(fields: [organizationId, revisionId], references: [organizationId, id], onDelete: Restrict)
+  run          PmGenerationRun?        @relation(fields: [organizationId, runId], references: [organizationId, id], onDelete: Restrict)
+  workOrder    WorkOrder?              @relation("OccurrenceWorkOrder")
+
+  @@unique([organizationId, id])
+  @@unique([scheduleId, dueOn])
+  @@index([organizationId, status, dueOn])
+  @@index([organizationId, assetId, dueOn])
+  @@map("pm_occurrences")
+}
+
+/// One run of PM work order generation (button, npm script or scheduler).
+model PmGenerationRun {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String              @map("organization_id") @db.Uuid
+  trigger          GenerationTrigger
+  /// The person who pressed "Run now"; NULL for the scheduler.
+  actorId          String?             @map("actor_id")
+  status           GenerationRunStatus @default(RUNNING)
+  startedAt        DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime?           @map("finished_at") @db.Timestamptz(6)
+  schedulesChecked Int                 @default(0) @map("schedules_checked")
+  created          Int                 @default(0)
+  missed           Int                 @default(0)
+  skipped          Int                 @default(0)
+  failed           Int                 @default(0)
+  remindersSent    Int                 @default(0) @map("reminders_sent")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  occurrences  PmOccurrence[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, startedAt(sort: Desc)])
+  @@map("pm_generation_runs")
+}
+
+/// The answer to one checklist item when a job is signed off. Append-only:
+/// a reopened job records a new attempt instead of changing old answers.
+model ChecklistResult {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String      @map("organization_id") @db.Uuid
+  workOrderId         String      @map("work_order_id") @db.Uuid
+  attempt             Int
+  itemKey             String      @map("item_key")
+  label               String
+  /// INSPECTION, FUNCTIONAL, SERVICING or ELECTRICAL_SAFETY.
+  section             String
+  result              CheckResult
+  value               Decimal?    @db.Decimal(14, 4)
+  unit                String?
+  lowerLimit          Decimal?    @map("lower_limit") @db.Decimal(14, 4)
+  upperLimit          Decimal?    @map("upper_limit") @db.Decimal(14, 4)
+  notes               String?
+  /// Electrical safety items: the standard and version the test was done to.
+  testStandardCode    String?     @map("test_standard_code")
+  testStandardVersion String?     @map("test_standard_version")
+  recordedById        String      @map("recorded_by")
+  recordedAt          DateTime    @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([workOrderId, attempt, itemKey])
+  @@index([organizationId, workOrderId])
+  @@map("checklist_results")
+}
+
+/// An electrical safety test standard the organisation uses, e.g. IEC 62353.
+/// Must be verified by qualified engineering staff before plans can use it.
+model TestStandard {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  code             String
+  version          String
+  title            String
+  jurisdictionNote String?      @map("jurisdiction_note")
+  status           RecordStatus @default(ACTIVE)
+  verifiedById     String?      @map("verified_by")
+  verifiedAt       DateTime?    @map("verified_at") @db.Timestamptz(6)
+  verificationNote String?      @map("verification_note")
+  createdById      String?      @map("created_by")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  rules        TestStandardRule[]
+  workOrders   WorkOrder[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, code, version])
+  @@map("test_standards")
+}
+
+/// Which standard applies where. The most specific active rule wins:
+/// hospital + category, hospital, country + category, country, category,
+/// organisation default (all NULL).
+model TestStandardRule {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  standardId     String    @map("standard_id") @db.Uuid
+  hospitalId     String?   @map("hospital_id") @db.Uuid
+  country        String?   @db.Char(2)
+  categoryId     String?   @map("category_id") @db.Uuid
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdById    String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  standard     TestStandard       @relation(fields: [organizationId, standardId], references: [organizationId, id], onDelete: Restrict)
+  hospital     Hospital?          @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
+  category     EquipmentCategory? @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("test_standard_rules")
+}
+
+/// "Failed Safety Test — Do Not Use". While a hold is not RELEASED the
+/// database refuses to set the asset In service. Release needs a passed
+/// retest AND approval by an authorised second person.
+model SafetyHold {
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId        String           @map("organization_id") @db.Uuid
+  assetId               String           @map("asset_id") @db.Uuid
+  status                SafetyHoldStatus @default(AWAITING_REPAIR)
+  failedWorkOrderId     String           @map("failed_work_order_id") @db.Uuid
+  failureSummary        String           @map("failure_summary")
+  placedById            String           @map("placed_by")
+  placedAt              DateTime         @default(now()) @map("placed_at") @db.Timestamptz(6)
+  correctiveWorkOrderId String?          @map("corrective_work_order_id") @db.Uuid
+  retestWorkOrderId     String?          @map("retest_work_order_id") @db.Uuid
+  retestedById          String?          @map("retested_by")
+  retestedAt            DateTime?        @map("retested_at") @db.Timestamptz(6)
+  releasedById          String?          @map("released_by")
+  releasedAt            DateTime?        @map("released_at") @db.Timestamptz(6)
+  releaseNote           String?          @map("release_note")
+  rejectedCount         Int              @default(0) @map("rejected_count")
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset           Asset             @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  failedWorkOrder WorkOrder         @relation("HoldFailedWorkOrder", fields: [organizationId, failedWorkOrderId], references: [organizationId, id], onDelete: Restrict)
+  workOrders      WorkOrder[]       @relation("HoldWorkOrders")
+  events          SafetyHoldEvent[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@index([organizationId, assetId])
+  @@map("safety_holds")
+}
+
+/// Approval history of a safety hold: who did what, when. Append-only.
+model SafetyHoldEvent {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  holdId         String   @map("hold_id") @db.Uuid
+  kind           String // PLACED, REPAIR_CREATED, REPAIR_COMPLETED, RETEST_CREATED, RETEST_PASSED, RETEST_FAILED, RELEASE_APPROVED, RELEASE_REJECTED, FAILURE_ADDED
+  workOrderId    String?  @map("work_order_id") @db.Uuid
+  note           String?
+  actorId        String   @map("actor_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hold         SafetyHold   @relation(fields: [organizationId, holdId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, holdId, createdAt])
+  @@map("safety_hold_events")
 }
 
 // ─── People and access ───────────────────────────────────────────────────────

@@ -5,7 +5,9 @@ import { authenticator } from "otplib";
 import { auth } from "@/server/auth/auth";
 import { db } from "@/server/db/client";
 import { TEST_PASSWORD } from "../constants";
-import { auditCount, owner } from "../helpers";
+import { auditCount, contextFor, owner } from "../helpers";
+import { resetMemberMfa } from "@/server/services/organization-admin";
+import { AuthorizationError, ValidationError } from "@/server/authz/errors";
 
 afterAll(async () => {
   await db.$disconnect();
@@ -143,6 +145,79 @@ describe("multi-factor authentication (authenticator app)", () => {
     expect(done.status).toBe(200);
     const session = await auth.api.getSession({ headers: new Headers({ cookie: cookiesFrom(done, pendingCookie) }) });
     expect(session?.user.email).toBe(email);
+  });
+});
+
+describe("MFA storage, recovery and audit (Stage 6, decision of 15 Oct 2026)", () => {
+  const email = "fatuma.hassan@coastal.example"; // Auditor: MFA encouraged, enrolled here
+
+  it("stores the authenticator secret and backup codes encrypted, and audits every step without codes", async () => {
+    const before = {
+      enrolled: await auditCount({ action: "auth.mfa_enrolled" }),
+      failed: await auditCount({ action: "auth.mfa_verify_failed", outcome: "FAILURE" }),
+    };
+    let cookie = cookiesFrom(await call("/sign-in/email", { email, password: TEST_PASSWORD }));
+    const enable = await call("/two-factor/enable", { password: TEST_PASSWORD }, cookie);
+    const { totpURI, backupCodes } = (await enable.json()) as { totpURI: string; backupCodes: string[] };
+    const secret = new URL(totpURI).searchParams.get("secret")!;
+
+    // At rest: neither the secret nor any backup code appears in plain text.
+    const user = await owner.user.findUniqueOrThrow({ where: { email } });
+    const row = await owner.twoFactor.findFirstOrThrow({ where: { userId: user.id } });
+    expect(row.secret).not.toContain(secret);
+    expect(row.secret).not.toBe(secret);
+    for (const code of backupCodes) expect(row.backupCodes).not.toContain(code);
+
+    await call("/two-factor/verify-totp", { code: "123456" }, cookie);
+    const verify = await call("/two-factor/verify-totp", { code: authenticator.generate(secret) }, cookie);
+    expect(verify.status).toBe(200);
+    cookie = cookiesFrom(verify, cookie);
+    expect(await auditCount({ action: "auth.mfa_enrolled" })).toBe(before.enrolled + 1);
+    expect(await auditCount({ action: "auth.mfa_verify_failed", outcome: "FAILURE" })).toBe(before.failed + 1);
+
+    // A "trust this device" request is refused: a code is needed at every sign-in.
+    const second = await call("/sign-in/email", { email, password: TEST_PASSWORD });
+    const pending = cookiesFrom(second);
+    const trusted = await call(
+      "/two-factor/verify-totp",
+      { code: authenticator.generate(secret), trustDevice: true },
+      pending,
+    );
+    expect(trusted.status).toBe(400);
+
+    // Recovery with a backup code is audited as recovery.
+    const used = await call("/two-factor/verify-backup-code", { code: backupCodes[0] }, pending);
+    expect(used.status).toBe(200);
+    expect(await auditCount({ action: "auth.mfa_backup_code_used", actorUserId: user.id })).toBe(1);
+    const fresh = cookiesFrom(used, pending);
+    const regen = await call("/two-factor/generate-backup-codes", { password: TEST_PASSWORD }, fresh);
+    expect(regen.status).toBe(200);
+    expect(await auditCount({ action: "auth.mfa_backup_codes_regenerated", actorUserId: user.id })).toBe(1);
+
+    // No audit record ever contains a one-time code, backup code or the secret.
+    const logs = await owner.auditLog.findMany({ where: { action: { startsWith: "auth.mfa" } } });
+    const text = JSON.stringify(logs);
+    expect(text).not.toContain(secret);
+    for (const code of backupCodes) expect(text).not.toContain(code);
+    expect(text).not.toContain("123456");
+  });
+
+  it("an organisation administrator can reset a member's authenticator (recovery); nobody else can", async () => {
+    const user = await owner.user.findUniqueOrThrow({ where: { email } });
+    const membership = await owner.membership.findFirstOrThrow({ where: { userId: user.id } });
+    const input = { membershipId: membership.id, reason: "Identity confirmed in person by the admin (test)" };
+    await expect(resetMemberMfa(await contextFor("amina.warsame@coastal.example"), input)).rejects.toBeInstanceOf(
+      AuthorizationError,
+    );
+    const hodan = await contextFor("hodan.ali@coastal.example");
+    await expect(
+      resetMemberMfa(hodan, { membershipId: hodan.membershipId, reason: input.reason }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await resetMemberMfa(hodan, input);
+    expect((await owner.user.findUniqueOrThrow({ where: { email } })).twoFactorEnabled).toBe(false);
+    expect(await owner.twoFactor.count({ where: { userId: user.id } })).toBe(0);
+    expect(await owner.session.count({ where: { userId: user.id } })).toBe(0);
+    expect(await auditCount({ action: "auth.mfa_reset_by_admin" })).toBe(1);
   });
 });
 

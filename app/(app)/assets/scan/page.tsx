@@ -13,15 +13,19 @@ export default async function ScanPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const ctx = await requireAccess();
-  const report = (await searchParams).then === "report" && can(ctx, "workorder.report");
+  const then = (await searchParams).then;
+  const report = then === "report" && can(ctx, "workorder.report");
+  const pm = then === "pm" && can(ctx, "pm.view");
   return (
     <>
       <PageHeader
-        title={report ? "Scan to report a fault" : "Scan equipment barcode"}
+        title={
+          report ? "Scan to report a fault" : pm ? "Scan to open a maintenance schedule" : "Scan equipment barcode"
+        }
         description="Open an asset by scanning the barcode on its BiomedIntel.ai label with a handheld scanner or this device's camera, or by typing its asset ID. You only see equipment in your hospitals and departments."
       />
       <Card className="max-w-3xl">
-        <Scanner then={report ? "report" : undefined} />
+        <Scanner then={report ? "report" : pm ? "pm" : undefined} />
       </Card>
     </>
   );

@@ -59,7 +59,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
         </header>
-        <main className="flex flex-1 flex-col gap-6 p-6 print:p-0">{children}</main>
+        <main className="flex flex-1 flex-col gap-6 p-6 print:p-0">
+          {/* Decision of 15 Oct 2026: MFA is required for managers and admins
+              (enforced on the server) and ENCOURAGED for everyone else. */}
+          {!ctx.user.twoFactorEnabled && !ctx.mfaRequired && ctx.role !== "FAULT_REPORTER" ? (
+            <p className="bg-info-bg text-info rounded-md px-4 py-2.5 text-sm print:hidden">
+              Protect your account: set up two-step verification with an authenticator app.{" "}
+              <a href="/account/security" className="font-semibold underline">
+                Set it up
+              </a>
+            </p>
+          ) : null}
+          {children}
+        </main>
         <footer className="border-line text-ink-muted border-t px-6 py-3 text-xs print:hidden">
           BiomedIntel.ai · Smarter Maintenance. Safer Healthcare. · Development build — not for clinical or production
           use.

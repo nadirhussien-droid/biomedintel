@@ -32,6 +32,19 @@ import {
 } from "@/lib/validation/assets";
 import { parseAssetCode } from "@/lib/asset-code";
 import { findStaff, notify } from "./notifications";
+import { openSafetyHold } from "./work-order-core";
+import { DO_NOT_USE_LABEL } from "@/lib/validation/pm";
+
+/** Stage 6: a device with an open safety hold can only return to service through the hold. */
+async function refuseInServiceWhileHeld(tx: Tx, assetId: string, from: string, to: string) {
+  if (to !== "IN_SERVICE" || from === "IN_SERVICE") return;
+  if (await openSafetyHold(tx, assetId)) {
+    throw new ValidationError(
+      `${DO_NOT_USE_LABEL}. This device can only return to service after a passed retest approved by a second person.`,
+      { status: [DO_NOT_USE_LABEL] },
+    );
+  }
+}
 
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -601,6 +614,7 @@ export async function updateAsset(ctx: AccessContext, input: unknown) {
     await requireHospitalAccess(ctx, data.hospitalId, data.departmentId);
     await checkReferences(tx, data);
     const existing = await tx.asset.findUniqueOrThrow({ where: { id } });
+    await refuseInServiceWhileHeld(tx, id, existing.status, data.status);
     // Only warn about a repeated serial number when the serial or model changes.
     const serialUnchanged =
       existing.modelId === data.modelId &&
@@ -738,6 +752,7 @@ export async function changeAssetStatus(ctx: AccessContext, input: unknown) {
       updates.locationId = data.locationId;
     }
     const statusChanged = data.status !== current.status;
+    if (statusChanged) await refuseInServiceWhileHeld(tx, data.id, current.status, data.status);
     if (statusChanged) updates.status = data.status;
     if (!statusChanged && updates.locationId === undefined) return { changed: false };
 
@@ -1199,6 +1214,18 @@ export async function decideDecommission(ctx: AccessContext, input: unknown) {
         action: "asset.decommissioned",
         metadata: { requestId: request.id, from: current.status, approvedAs: approver },
       });
+      // Stage 6: a decommissioned device needs no more planned maintenance.
+      const ended = await tx.pmSchedule.updateMany({
+        where: { assetId: request.assetId, status: "ACTIVE" },
+        data: { status: "ENDED", endedAt: new Date(), endReason: "Asset decommissioned", updatedById: ctx.user.id },
+      });
+      if (ended.count) {
+        await audit(tx, {
+          ...base,
+          action: "pm.schedules_ended",
+          metadata: { count: ended.count, reason: "decommissioned" },
+        });
+      }
     } else {
       await audit(tx, {
         ...base,

@@ -10,7 +10,14 @@
 //     other session when used.
 //   • Authenticator-app MFA (TOTP) through the two-factor plugin.
 //   • Rate limiting on sign-in, MFA and password-reset endpoints.
-//   • Audit events for sign-in, failed sign-in and sign-out.
+//   • Audit events for sign-in, failed sign-in and sign-out, and (Stage 6)
+//     for every MFA and password event: enrolment completed, code accepted or
+//     refused, backup-code recovery, new backup codes, MFA turned off,
+//     password changed or reset. Codes, secrets and passwords are NEVER logged.
+//   • The TOTP secret and backup codes are stored ENCRYPTED by Better Auth
+//     (symmetric encryption with BETTER_AUTH_SECRET), never in plain text;
+//     a test checks this in the database.
+//   • No "trust this device": MFA users enter a code at every sign-in.
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -104,6 +111,16 @@ export const auth = betterAuth({
   },
 
   hooks: {
+    // Decision of 15 Oct 2026: MFA is asked at EVERY sign-in, so requests to
+    // remember a device (which would skip the code for 30 days) are refused.
+    before: createAuthMiddleware(async (ctx) => {
+      if (
+        (ctx.path === "/two-factor/verify-totp" || ctx.path === "/two-factor/verify-backup-code") &&
+        (ctx.body as { trustDevice?: unknown } | undefined)?.trustDevice
+      ) {
+        throw new APIError("BAD_REQUEST", { message: "Trusted devices are not allowed. Enter a code each time." });
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
       const request = requestMetaFrom(ctx.headers);
       if (ctx.path === "/sign-in/email" && ctx.context.returned instanceof APIError) {
@@ -133,11 +150,59 @@ export const auth = betterAuth({
           });
         }
       }
+      // MFA verification (Stage 6). With a session = finishing enrolment;
+      // without = the second step of signing in. The code is never recorded.
+      const MFA_PATHS: Record<string, string> = {
+        "/two-factor/verify-totp": "totp",
+        "/two-factor/verify-backup-code": "backup_code",
+      };
+      if (MFA_PATHS[ctx.path]) {
+        const method = MFA_PATHS[ctx.path];
+        const failed = ctx.context.returned instanceof APIError;
+        const enrolment = Boolean(ctx.context.session) && method === "totp";
+        const userId = ctx.context.session?.user.id ?? ctx.context.newSession?.user.id ?? null;
+        await auditStandalone({
+          organizationId: null,
+          actorUserId: userId,
+          action: failed
+            ? "auth.mfa_verify_failed"
+            : enrolment
+              ? "auth.mfa_enrolled"
+              : method === "backup_code"
+                ? "auth.mfa_backup_code_used"
+                : "auth.mfa_verified",
+          outcome: failed ? "FAILURE" : "SUCCESS",
+          entityType: userId ? "user" : undefined,
+          entityId: userId ?? undefined,
+          metadata: { method, stage: enrolment ? "enrolment" : "sign_in" },
+          request,
+        });
+      }
+      const ACCOUNT_EVENTS: Record<string, string> = {
+        "/two-factor/generate-backup-codes": "auth.mfa_backup_codes_regenerated",
+        "/change-password": "auth.password_changed",
+        "/reset-password": "auth.password_reset",
+      };
+      if (ACCOUNT_EVENTS[ctx.path] && !(ctx.context.returned instanceof APIError)) {
+        const userId = ctx.context.session?.user.id ?? null;
+        await auditStandalone({
+          organizationId: null,
+          actorUserId: userId,
+          action: ACCOUNT_EVENTS[ctx.path],
+          entityType: userId ? "user" : undefined,
+          entityId: userId ?? undefined,
+          request,
+        });
+      }
     }),
   },
 
   plugins: [
-    twoFactor({ issuer: "BiomedIntel.ai" }),
+    twoFactor({
+      issuer: "BiomedIntel.ai",
+      // Explicit, although it is the default: backup codes are stored encrypted.
+      backupCodeOptions: { storeBackupCodes: "encrypted" },
+    }),
     nextCookies(), // must stay last: lets server actions set auth cookies
   ],
 });

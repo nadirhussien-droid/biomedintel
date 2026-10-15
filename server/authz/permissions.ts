@@ -44,6 +44,8 @@ export const PERMISSIONS = {
   "member.view": ["ORG_ADMIN", "AUDITOR"],
   "member.add": ["ORG_ADMIN"],
   "member.changeRole": ["ORG_ADMIN"],
+  // Stage 6: MFA recovery for a member who lost authenticator AND backup codes.
+  "member.resetMfa": ["ORG_ADMIN"],
   "audit.view": ["ORG_ADMIN", "AUDITOR"],
 
   // Equipment assets (Stage 4)
@@ -90,6 +92,29 @@ export const PERMISSIONS = {
   // Take an unassigned job, and do the work on jobs assigned to oneself
   // (start, hold, log work, sign off).
   "workorder.work": ["ENGINEERING_MANAGER", "TECHNICIAN"],
+
+  // Preventive maintenance (Stage 6). Scope: the asset's hospital and
+  // department; a plan limited to one hospital needs access to that hospital.
+  // Fault Reporters do not see maintenance schedules.
+  "pm.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "DEPARTMENT_HEAD", "AUDITOR"],
+  // Write, edit, pause, resume and archive plans; enrol assets; set
+  // manufacturer intervals; run generation now.
+  "pm.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  "pm.generate": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  // Approving a plan (its procedure, limits and interval) and reviewing an
+  // interval need qualified biomedical engineering staff (decision of
+  // 15 Oct 2026), so only the Engineering Manager.
+  "pm.approve": ["ENGINEERING_MANAGER"],
+  "pm.report": ["ORG_ADMIN", "ENGINEERING_MANAGER", "DEPARTMENT_HEAD", "AUDITOR"],
+  "pm.export": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
+  // Test standards and which standard applies where.
+  "standards.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
+  "standards.verify": ["ENGINEERING_MANAGER"],
+  // Safety holds after a failed safety test (decision of 15 Oct 2026): every
+  // PM viewer can see them; only an Engineering Manager who did NOT do the
+  // retest may approve return to service (second-person rule in the service
+  // and the database).
+  "safety.release": ["ENGINEERING_MANAGER"],
 } as const satisfies Record<string, readonly MembershipRole[]>;
 
 export type Action = keyof typeof PERMISSIONS;

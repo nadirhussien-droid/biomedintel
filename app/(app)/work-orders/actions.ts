@@ -156,6 +156,34 @@ export async function completeAction(prev: WoFormState | null, form: FormData) {
   );
 }
 
+/** Stage 6: sign-off of a planned job, with an answer for every checklist item. */
+export async function pmCompleteAction(prev: WoFormState | null, form: FormData) {
+  const ctx = await requireAccess();
+  const keys = form
+    .getAll("itemKey")
+    .filter((k): k is string => typeof k === "string")
+    .slice(0, 60);
+  const answers = keys.map((key) => ({
+    key,
+    result: str(form, `result_${key}`),
+    value: str(form, `value_${key}`),
+    notes: str(form, `notes_${key}`),
+  }));
+  return runThenShow(
+    () =>
+      completeWorkOrder(ctx, {
+        id: str(form, "id"),
+        resolution: str(form, "resolution"),
+        diagnosis: str(form, "diagnosis"),
+        answers,
+        declaration: form.get("declaration") === "on",
+      }),
+    str(form, "id"),
+    "signed-off",
+    prev,
+  );
+}
+
 export async function reviewAction(prev: WoFormState | null, form: FormData) {
   const ctx = await requireAccess();
   return runThenShow(() => reviewWorkOrder(ctx, { id: str(form, "id") }), str(form, "id"), "reviewed", prev);

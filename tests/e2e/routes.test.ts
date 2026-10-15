@@ -80,7 +80,10 @@ describe.skipIf(!BASE)("protected routes over HTTP", () => {
       expect(dash.status).toBe(200);
       const html = await dash.text();
       expect(html).toContain("Engineering dashboard");
-      expect(html).toContain("Fictional demonstration data");
+      // Stage 6: the last demo figures were replaced by live preventive maintenance data.
+      expect(html).not.toContain("Fictional demonstration data");
+      expect(html).toContain("Preventive maintenance");
+      expect(html).toContain("PM compliance");
       expect(html).not.toContain("Highland Medical Network"); // another tenant
 
       const admin = await fetch(`${BASE}/admin`, { headers: { cookie }, redirect: "manual" });

@@ -21,8 +21,12 @@ import { lookupAssetCodeAction } from "../actions";
 type CameraState = "idle" | "starting" | "scanning" | "unavailable";
 type Controls = { stop: () => void };
 
-/** With then = "report": open the fault report form for the scanned device instead of the asset page. */
-export function Scanner({ then }: { then?: "report" }) {
+/**
+ * With then = "report": open the fault report form for the scanned device.
+ * With then = "pm" (Stage 6): open the device's preventive maintenance section.
+ * Otherwise: the asset page.
+ */
+export function Scanner({ then }: { then?: "report" | "pm" }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +55,13 @@ export function Scanner({ then }: { then?: "report" }) {
       const result = await lookupAssetCodeAction(parsed.code);
       const match = result.ok ? /^\/assets\/([0-9a-f-]{36})$/i.exec(result.href) : null;
       if (match) {
-        router.push(then === "report" ? `/work-orders/new?asset=${match[1]}` : `/assets/${match[1]}`);
+        router.push(
+          then === "report"
+            ? `/work-orders/new?asset=${match[1]}`
+            : then === "pm"
+              ? `/assets/${match[1]}#pm`
+              : `/assets/${match[1]}`,
+        );
       } else {
         setMessage(result.ok ? "Unexpected response. Please try again." : result.message);
         // Ready for the next handheld scan.

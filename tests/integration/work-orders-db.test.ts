@@ -66,7 +66,14 @@ describe("work order schema", () => {
     const org = wo.organizationId;
     await expect(
       owner.workOrder.create({
-        data: { ...wo, id: undefined, number: "JOB-1", createdAt: undefined, updatedAt: undefined },
+        data: {
+          ...wo,
+          id: undefined,
+          number: "JOB-1",
+          createdAt: undefined,
+          updatedAt: undefined,
+          checklist: undefined,
+        },
       }),
     ).rejects.toThrow();
     const base = {

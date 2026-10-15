@@ -4,7 +4,13 @@ import { useActionState, useState } from "react";
 import type { ActionResult } from "@/server/actions/result";
 import { Button } from "@/components/ui/button";
 import { InputField, SelectField } from "@/components/ui/field";
-import { addMemberAction, changeMemberRoleAction, createDepartmentAction, createHospitalAction } from "./actions";
+import {
+  addMemberAction,
+  changeMemberRoleAction,
+  createDepartmentAction,
+  createHospitalAction,
+  resetMemberMfaAction,
+} from "./actions";
 
 function Message({ state }: { state: ActionResult<unknown> | null }) {
   if (!state) return null;
@@ -191,6 +197,53 @@ export function AddMemberForm({ roles, hospitals }: { roles: RoleOption[]; hospi
           </p>
         </div>
       ) : null}
+    </form>
+  );
+}
+
+/** Stage 6: MFA recovery for a member who lost both their authenticator and backup codes. */
+export function ResetMfaForm({ membershipId, name }: { membershipId: string; name: string }) {
+  const [state, action, pending] = useActionState(resetMemberMfaAction, null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="text-xs font-semibold text-teal-700 hover:underline"
+        onClick={() => setOpen(true)}
+      >
+        Reset
+      </button>
+    );
+  }
+  return (
+    <form
+      action={action}
+      className="flex min-w-56 flex-col gap-1"
+      onSubmit={(e) => {
+        if (
+          !window.confirm(
+            `Remove ${name}'s authenticator? They will be signed out everywhere and must set up a new one.`,
+          )
+        )
+          e.preventDefault();
+      }}
+    >
+      <input type="hidden" name="membershipId" value={membershipId} />
+      <label className="text-xs font-semibold" htmlFor={`mfa-reason-${membershipId}`}>
+        How did you confirm who they are?
+      </label>
+      <input
+        id={`mfa-reason-${membershipId}`}
+        name="reason"
+        maxLength={300}
+        className="border-line-strong min-h-10 rounded-sm border bg-white px-2 text-sm"
+        placeholder="e.g. Checked staff ID in person"
+      />
+      <Button type="submit" variant="danger" className="min-h-10 px-3" disabled={pending}>
+        Reset two-step verification
+      </Button>
+      <Message state={state} />
     </form>
   );
 }

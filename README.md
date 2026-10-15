@@ -237,6 +237,50 @@ The seed adds four fictional jobs:
 - WO-…-00003: a new safety-critical report on DEF-0101, taken out of use.
 - One assigned job in Highland.
 
+## Preventive maintenance (Stage 6)
+
+Open **Preventive Maintenance** in the sidebar. Full details are in [docs/STAGE-6.md](docs/STAGE-6.md).
+
+**In short:**
+
+1. An Engineering Manager or Org Admin writes a **maintenance plan**. A plan holds what it applies to (one asset, one model or one category), the interval, where the interval comes from, the checklist, the lead time and who does the work. It starts as a **draft**.
+2. An **Engineering Manager approves** it. Approval confirms the procedure, the measurement limits and the interval. Nothing is scheduled before this.
+3. Matching assets are **enrolled** with a first due date.
+4. Once a day the **scheduler** creates a normal work order for each due date that falls inside the plan's lead time. It also sends reminders: upcoming, due today and overdue.
+5. The assigned technician answers every checklist item and signs off, exactly as in Stage 5.
+
+**Where an interval may come from** (decision of 15 Oct 2026, in priority order):
+
+1. a regulatory or organisational requirement, with its reference;
+2. the manufacturer's interval for the model (record it under **Maintenance → Settings**);
+3. an organisation-defined interval, only where no manufacturer guidance exists, with a written justification.
+
+Equipment without an approved plan is listed under **Needs review**. BiomedIntel.ai never invents a schedule.
+
+**Failed electrical safety test.** If any electrical safety item fails:
+
+- the device is flagged **"Failed Safety Test — Do Not Use"** and taken out of service;
+- a repair job is created; after the repair, a retest job;
+- after a passed retest, an Engineering Manager who did **not** do the retest must approve return to service.
+
+Nothing else can put the device back in service, and the database enforces this too.
+
+**Test standards.** IEC 62353 is the default and AS/NZS 3551 is listed. You choose which applies per organisation, country, hospital or category. A qualified Engineering Manager must verify a standard before it is used. Each test result stores the standard and version used.
+
+**Running the scheduler:**
+
+```bash
+npm run pm:generate     # creates due PM work orders and reminders for every organisation, once
+```
+
+- It is safe to run it any number of times: a due date can only ever get one work order.
+- In production, run it daily with the server's cron, or call `POST /api/cron/pm-generate` with the header `Authorization: Bearer <CRON_SECRET>` (see `.env.example`).
+- Managers can also press **Run generation now** on the Maintenance overview.
+
+**Barcodes:** **Scan barcode** on the Maintenance pages (or `/assets/scan?then=pm`) opens the scanned device's maintenance section. Every asset page now has a **Preventive maintenance** section.
+
+**Seed data:** fictional test standards, manufacturer intervals and four plans (three approved, one draft). Run `npm run pm:generate` after seeding: it creates 5 PM work orders (overdue, due today and upcoming) and records 1 missed ventilator inspection.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
@@ -264,6 +308,7 @@ It uses `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_NAME` from `.env`, asks for
 | `npm run db:reset`        | **Local only**: wipe `biomedintel_dev`, re-apply migrations, re-seed           |
 | `npm run db:studio`       | Open Prisma Studio to browse the database (uses the owner role — careful)      |
 | `npm run db:test:prepare` | Apply migrations to the test database                                          |
+| `npm run pm:generate`     | Create due preventive maintenance work orders and reminders (safe to repeat)   |
 
 ### Resetting your local database safely
 
@@ -282,6 +327,15 @@ npm test
 ```
 
 The suite wipes and re-seeds `biomedintel_test` (it refuses any database not ending in `_test`). It covers schema constraints, Row-Level Security, cross-tenant access, pooled-connection leakage, role permissions, self-escalation, input validation, sign-in, sessions, MFA, password reset and audit records — and, for equipment, asset isolation between organisations, hospitals and departments, search/paging/export isolation, barcode generation, decoding and look-up, label output, field-level rules and the decommissioning approval rule.
+
+Stage 6 adds tests for:
+
+- date maths: month ends, leap years, time zones;
+- plan rules, approval and permissions;
+- generation: correct links, retries, concurrent runs, failure and recovery, catch-up, skipped assets;
+- checklist sign-off;
+- the full failed-safety-test hold with second-person approval;
+- reports, exports, barcode entry, the scheduler endpoint, and MFA storage and recovery.
 
 **If you add a new migration**, run `npm run db:test:prepare` before `npm test`.
 

@@ -28,7 +28,6 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: "/maintenance",
         label: "Preventive Maintenance",
-        stage: 6,
         icon: "M4 6h16v14H4zM4 10h16M8 3v5M16 3v5M9 15l2 2 4-4",
       },
       {

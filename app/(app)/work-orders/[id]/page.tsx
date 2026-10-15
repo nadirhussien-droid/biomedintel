@@ -9,7 +9,10 @@ import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { StatusBadge } from "@/components/assets/status-badge";
 import { OverdueBadge, PriorityBadge, SafetyBadge, WoStatusBadge } from "@/components/work-orders/badges";
-import { CHECK_LABELS, MAX_PHOTOS, OUTCOME_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
+import { CHECK_LABELS, MAX_PHOTOS, ANY_OUTCOME_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
+import { DoNotUseBanner, OccurrenceBadge } from "@/components/pm/badges";
+import { formatDateOnly, fromDbDate } from "@/lib/pm/dates";
+import { SECTION_LABELS, WORK_TYPE_LABELS, type ChecklistSection } from "@/lib/validation/pm";
 import {
   AssignForm,
   CancelForm,
@@ -18,6 +21,7 @@ import {
   LogWorkForm,
   NoteForm,
   PhotoUpload,
+  PmCompleteForm,
   PriorityForm,
   ReopenForm,
   ReviewForm,
@@ -105,6 +109,7 @@ export default async function WorkOrderPage({
           {saved}
         </p>
       ) : null}
+      {wo.assetHold ? <DoNotUseBanner holdId={wo.assetHold.id} status={wo.assetHold.status} /> : null}
       {photoErrors > 0 ? (
         <p role="alert" className="bg-warn-bg rounded-md px-4 py-3 text-sm text-[#6b3f00]">
           {photoErrors} photo(s) could not be uploaded. You can try again below.
@@ -123,11 +128,11 @@ export default async function WorkOrderPage({
               </span>
             }
           >
-            Fault
+            {wo.planned ? `${WORK_TYPE_LABELS[wo.type]} job` : "Fault"}
           </CardTitle>
           <p className="text-sm whitespace-pre-line">{wo.faultDescription}</p>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-            <Item label="Reported">
+            <Item label={wo.planned ? "Created" : "Reported"}>
               {dateTime.format(wo.createdAt)} UTC · {person(wo.reportedById)}
             </Item>
             <Item label="Device taken out of use">{wo.outOfUse ? "Yes" : "No"}</Item>
@@ -177,6 +182,75 @@ export default async function WorkOrderPage({
         </Card>
       </div>
 
+      {wo.planned ? (
+        <Card>
+          <CardTitle
+            action={
+              wo.pmOccurrence ? (
+                <OccurrenceBadge status={wo.pmOccurrence.status} />
+              ) : wo.safetyHoldId ? (
+                <Badge tone="danger">Safety hold retest</Badge>
+              ) : null
+            }
+          >
+            {wo.pmOccurrence ? "Preventive maintenance" : "Electrical safety retest"}
+          </CardTitle>
+          <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+            {wo.pmOccurrence ? (
+              <>
+                <Item label="Plan">
+                  <Link
+                    href={`/maintenance/plans/${wo.pmOccurrence.plan.id}`}
+                    className="text-teal-700 hover:underline"
+                  >
+                    {wo.pmOccurrence.plan.name}
+                  </Link>
+                  {wo.planRevision ? (
+                    <span className="text-ink-muted"> · version {wo.planRevision.revisionNo}</span>
+                  ) : null}
+                </Item>
+                <Item label="Due (hospital date)">{formatDateOnly(fromDbDate(wo.pmOccurrence.dueOn))}</Item>
+                <Item label="Completed">
+                  {wo.pmOccurrence.completedOn
+                    ? `${formatDateOnly(fromDbDate(wo.pmOccurrence.completedOn))} · ${wo.pmOccurrence.onTime ? "on time" : "late"}`
+                    : "—"}
+                </Item>
+                {wo.pmOccurrence.plan.requiredCompetency ? (
+                  <Item label="Required competency">{wo.pmOccurrence.plan.requiredCompetency}</Item>
+                ) : null}
+                {wo.pmOccurrence.plan.documentReference ? (
+                  <Item label="Service documentation">{wo.pmOccurrence.plan.documentReference}</Item>
+                ) : null}
+              </>
+            ) : wo.safetyHoldId ? (
+              <Item label="Safety hold">
+                <Link href={`/maintenance/holds/${wo.safetyHoldId}`} className="text-teal-700 hover:underline">
+                  View hold and approval history
+                </Link>
+              </Item>
+            ) : null}
+            <Item label="Test standard">
+              {wo.testStandardCode ? `${wo.testStandardCode} ${wo.testStandardVersion}` : "Not applicable"}
+            </Item>
+          </dl>
+          {wo.instructions ? <p className="text-sm whitespace-pre-line">{wo.instructions}</p> : null}
+          {wo.status !== "COMPLETED" && wo.checklistItems ? (
+            <div>
+              <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">
+                Checklist ({wo.checklistItems.length} items)
+              </h3>
+              <ol className="mt-1 list-decimal pl-5 text-sm">
+                {wo.checklistItems.map((i) => (
+                  <li key={i.key}>
+                    {i.label} <span className="text-ink-muted">· {SECTION_LABELS[i.section as ChecklistSection]}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
       {a.assign || a.priority || a.take || a.start || a.hold || a.logWork || a.complete ? (
         <Card>
           <CardTitle>Actions</CardTitle>
@@ -214,7 +288,15 @@ export default async function WorkOrderPage({
           </div>
           {a.complete ? (
             <Section title="Sign off (technician who did the job)" wide>
-              <CompleteForm id={wo.id} />
+              {wo.planned && wo.checklistItems ? (
+                <PmCompleteForm
+                  id={wo.id}
+                  items={wo.checklistItems}
+                  standard={wo.testStandardCode ? `${wo.testStandardCode} ${wo.testStandardVersion}` : null}
+                />
+              ) : (
+                <CompleteForm id={wo.id} />
+              )}
             </Section>
           ) : null}
         </Card>
@@ -234,7 +316,7 @@ export default async function WorkOrderPage({
             Sign-off
           </CardTitle>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-            <Item label="Outcome">{wo.outcome ? OUTCOME_LABELS[wo.outcome] : "—"}</Item>
+            <Item label="Outcome">{wo.outcome ? ANY_OUTCOME_LABELS[wo.outcome] : "—"}</Item>
             <Item label="Signed off by">
               {person(wo.completedById)} · {wo.completedAt ? `${dateTime.format(wo.completedAt)} UTC` : ""}
             </Item>
@@ -250,10 +332,69 @@ export default async function WorkOrderPage({
               </Item>
             ) : null}
           </dl>
+          {wo.checklistResults.length ? (
+            <div className="overflow-x-auto">
+              <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">Checklist results</h3>
+              <table className="mt-1 w-full text-sm">
+                <caption className="sr-only">Checklist results</caption>
+                <thead className="text-ink-muted text-left text-xs uppercase">
+                  <tr>
+                    <th className="py-1.5 pr-3">Item</th>
+                    <th className="py-1.5 pr-3">Result</th>
+                    <th className="py-1.5 pr-3">Value</th>
+                    <th className="py-1.5 pr-3">Standard</th>
+                    <th className="py-1.5 pr-3">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...wo.checklistResults]
+                    .sort(
+                      (x, y) =>
+                        y.attempt - x.attempt ||
+                        (wo.checklistItems?.findIndex((i) => i.key === x.itemKey) ?? 0) -
+                          (wo.checklistItems?.findIndex((i) => i.key === y.itemKey) ?? 0),
+                    )
+                    .map((r) => (
+                      <tr
+                        key={r.id}
+                        className={`border-line border-t ${r.attempt !== wo.reopenCount ? "text-ink-muted" : ""}`}
+                      >
+                        <td className="py-1.5 pr-3">
+                          {r.label}
+                          {r.attempt !== wo.reopenCount ? (
+                            <span className="text-xs"> (earlier sign-off {r.attempt + 1})</span>
+                          ) : null}
+                        </td>
+                        <td className={`py-1.5 pr-3 font-semibold ${r.result === "FAIL" ? "text-danger" : ""}`}>
+                          {CHECK_LABELS[r.result]}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {r.value !== null ? `${Number(r.value)} ${r.unit ?? ""}` : "—"}
+                          {r.lowerLimit !== null || r.upperLimit !== null ? (
+                            <div className="text-ink-muted text-xs">
+                              limits {r.lowerLimit !== null ? Number(r.lowerLimit) : "—"} to{" "}
+                              {r.upperLimit !== null ? Number(r.upperLimit) : "—"}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {r.testStandardCode ? `${r.testStandardCode} ${r.testStandardVersion}` : "—"}
+                        </td>
+                        <td className="py-1.5 pr-3">{r.notes ?? ""}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           <div>
-            <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">Diagnosis</h3>
+            <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">
+              {wo.planned ? "Notes" : "Diagnosis"}
+            </h3>
             <p className="mt-1 text-sm whitespace-pre-line">{wo.diagnosis}</p>
-            <h3 className="text-ink-muted mt-3 text-xs font-semibold tracking-wide uppercase">Work done and result</h3>
+            <h3 className="text-ink-muted mt-3 text-xs font-semibold tracking-wide uppercase">
+              {wo.planned ? "Work done and findings" : "Work done and result"}
+            </h3>
             <p className="mt-1 text-sm whitespace-pre-line">{wo.resolution}</p>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
@@ -317,7 +458,9 @@ export default async function WorkOrderPage({
         <ol className="flex flex-col gap-2 text-sm">
           {wo.events.map((e) => (
             <li key={e.id} className="border-line border-b pb-2">
-              <span className="font-semibold">{EVENT_LABELS[e.kind] ?? e.kind}</span>
+              <span className="font-semibold">
+                {e.kind === "CREATED" && wo.planned ? "Work order created" : (EVENT_LABELS[e.kind] ?? e.kind)}
+              </span>
               {e.toStatus && e.kind !== "CREATED" ? (
                 <span className="text-ink-muted"> → {WO_STATUS_LABELS[e.toStatus]}</span>
               ) : null}
@@ -325,7 +468,9 @@ export default async function WorkOrderPage({
                 {" "}
                 · {person(e.actorId)} · {dateTime.format(e.createdAt)} UTC
               </span>
-              {e.note && e.kind !== "COMPLETED" ? <div className="mt-0.5 whitespace-pre-line">{e.note}</div> : null}
+              {e.note && e.kind !== "COMPLETED" && e.kind !== "CREATED" ? (
+                <div className="mt-0.5 whitespace-pre-line">{e.note}</div>
+              ) : null}
             </li>
           ))}
         </ol>

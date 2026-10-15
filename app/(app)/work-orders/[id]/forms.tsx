@@ -22,6 +22,7 @@ import {
   holdAction,
   logWorkAction,
   noteAction,
+  pmCompleteAction,
   priorityAction,
   reopenAction,
   reviewAction,
@@ -284,6 +285,141 @@ export function CompleteForm({ id }: { id: string }) {
           </label>
           {err(state, "declaration") ? (
             <p className="text-danger text-xs font-medium">{err(state, "declaration")!.join(" ")}</p>
+          ) : null}
+        </>
+      )}
+    </ActionForm>
+  );
+}
+
+type PmItem = {
+  key: string;
+  label: string;
+  section: string;
+  kind: string;
+  required: boolean;
+  unit: string | null;
+  min: number | null;
+  max: number | null;
+  guidance: string | null;
+};
+
+const SECTION_NAMES: Record<string, string> = {
+  INSPECTION: "Inspection",
+  FUNCTIONAL: "Functional test",
+  SERVICING: "Cleaning / servicing",
+  ELECTRICAL_SAFETY: "Electrical safety",
+};
+
+/**
+ * Stage 6: sign-off of planned maintenance or a safety (re)test. Every item is
+ * answered; the overall result is worked out on the server from the answers,
+ * and a failed electrical safety item places a "Do Not Use" hold.
+ */
+export function PmCompleteForm({ id, items, standard }: { id: string; items: PmItem[]; standard: string | null }) {
+  const [results, setResults] = useState<Record<string, string>>({});
+  const anyFail = Object.values(results).includes("FAIL");
+  const esFail = items.some((i) => i.section === "ELECTRICAL_SAFETY" && results[i.key] === "FAIL");
+  return (
+    <ActionForm action={pmCompleteAction} id={id} label="Sign off and complete">
+      {(state) => (
+        <>
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-sm font-semibold">Checklist</legend>
+            {standard ? (
+              <p className="text-ink-muted text-xs">Electrical safety items are recorded against {standard}.</p>
+            ) : null}
+            {items.map((item, i) => {
+              const e = err(state, `item_${item.key}`);
+              const limits =
+                item.min !== null || item.max !== null
+                  ? ` · limits ${item.min ?? "—"} to ${item.max ?? "—"} ${item.unit ?? ""}`
+                  : "";
+              return (
+                <div key={item.key} className={`rounded-md border p-3 ${e ? "border-danger" : "border-line"}`}>
+                  <input type="hidden" name="itemKey" value={item.key} />
+                  <div className="text-sm font-semibold">
+                    {i + 1}. {item.label}
+                    {item.required ? "" : " (optional)"}
+                  </div>
+                  <div className="text-ink-muted text-xs">
+                    {SECTION_NAMES[item.section] ?? item.section}
+                    {limits}
+                    {item.guidance ? ` · ${item.guidance}` : ""}
+                  </div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-[auto_8rem_1fr] md:items-end">
+                    <div
+                      role="radiogroup"
+                      aria-label={`Result for ${item.label}`}
+                      className="flex flex-wrap gap-3 text-sm"
+                    >
+                      {CHECKS.map((c) => (
+                        <label key={c} className="flex min-h-11 items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name={`result_${item.key}`}
+                            value={c}
+                            className="size-4 accent-teal-700"
+                            onChange={() => setResults((r) => ({ ...r, [item.key]: c }))}
+                          />
+                          {CHECK_LABELS[c]}
+                        </label>
+                      ))}
+                    </div>
+                    {item.kind === "MEASUREMENT" ? (
+                      <InputField
+                        label={`Value (${item.unit ?? ""})`}
+                        name={`value_${item.key}`}
+                        id={`value_${item.key}`}
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                      />
+                    ) : (
+                      <span />
+                    )}
+                    <InputField
+                      label="Notes"
+                      name={`notes_${item.key}`}
+                      id={`notes_${item.key}`}
+                      maxLength={500}
+                      placeholder={results[item.key] === "FAIL" ? "What failed (required)" : "Optional"}
+                    />
+                  </div>
+                  {e ? <p className="text-danger mt-1 text-xs font-medium">{e.join(" ")}</p> : null}
+                </div>
+              );
+            })}
+          </fieldset>
+          <FieldShell label="Work done and findings" name="resolution" error={err(state, "resolution")}>
+            <textarea id="resolution" name="resolution" required maxLength={2000} className={textarea} />
+          </FieldShell>
+          <FieldShell label="Other notes (optional)" name="diagnosis" error={err(state, "diagnosis")}>
+            <textarea id="diagnosis" name="diagnosis" maxLength={2000} className={textarea} />
+          </FieldShell>
+          {esFail ? (
+            <p role="alert" className="bg-danger-bg text-danger rounded-sm px-3 py-2 text-sm font-semibold">
+              An electrical safety check failed. On sign-off the device is flagged “Failed Safety Test — Do Not Use”,
+              taken out of service, and a repair job is created. It returns to service only after a passed retest
+              approved by a second person.
+            </p>
+          ) : anyFail ? (
+            <p className="bg-warn-bg rounded-sm px-3 py-2 text-sm text-[#6b3f00]">
+              A check failed. On sign-off the device is taken out of use and a repair job is created.
+            </p>
+          ) : null}
+          <label className="bg-surface flex items-start gap-2 rounded-sm p-3 text-sm">
+            <input type="checkbox" name="declaration" className="mt-0.5 size-4 accent-teal-700" />
+            <span>
+              <strong>I declare</strong> that I carried out this work and these checks myself and that the results and
+              measurements are my own. (Signing off does not by itself certify the device as safe for clinical use.)
+            </span>
+          </label>
+          {err(state, "declaration") ? (
+            <p className="text-danger text-xs font-medium">{err(state, "declaration")!.join(" ")}</p>
+          ) : null}
+          {state && !state.ok && state.fieldErrors?.answers ? (
+            <p className="text-danger text-xs font-medium">{state.fieldErrors.answers.join(" ")}</p>
           ) : null}
         </>
       )}

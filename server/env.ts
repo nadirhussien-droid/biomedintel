@@ -7,6 +7,12 @@ const schema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a postgresql:// URL"),
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters"),
   BETTER_AUTH_URL: z.string().url(),
+  // Stage 6: switches on POST /api/cron/pm-generate. Optional; at least 32 characters.
+  CRON_SECRET: z
+    .string()
+    .min(32, "CRON_SECRET must be at least 32 characters (or leave it unset)")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   REQUIRE_MFA_FOR_PRIVILEGED_ROLES: z
     .enum(["true", "false"])
     .default("true")

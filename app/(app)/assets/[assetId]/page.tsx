@@ -8,8 +8,11 @@ import { NotFoundError } from "@/server/authz/errors";
 import { withTenant } from "@/server/db/tenant";
 import { APPROVER_LABELS, getAsset } from "@/server/services/assets";
 import { listWorkOrdersForAsset } from "@/server/services/work-orders";
+import { getAssetPm } from "@/server/services/pm-schedule";
+import { DoNotUseBanner, DueStateBadge, OccurrenceBadge } from "@/components/pm/badges";
+import { formatDateOnly } from "@/lib/pm/dates";
 import { PriorityBadge, WoStatusBadge } from "@/components/work-orders/badges";
-import { OUTCOME_LABELS } from "@/lib/validation/work-orders";
+import { ANY_OUTCOME_LABELS } from "@/lib/validation/work-orders";
 import { code128 } from "@/server/barcode";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
@@ -73,7 +76,7 @@ export default async function AssetDetailPage({
   const pendingRequest = asset.lifecycleEvents.find((e) => e.status === "PENDING");
   const barcode = code128(asset.assetTag);
 
-  const workOrders = await listWorkOrdersForAsset(ctx, asset.id);
+  const [workOrders, pm] = await Promise.all([listWorkOrdersForAsset(ctx, asset.id), getAssetPm(ctx, asset.id)]);
   const openJobs = workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
   const serviceHistory = workOrders.filter((w) => w.status === "COMPLETED");
   const locations =
@@ -132,6 +135,7 @@ export default async function AssetDetailPage({
           {savedMessage}
         </p>
       ) : null}
+      {pm?.hold ? <DoNotUseBanner holdId={pm.hold.id} status={pm.hold.status} /> : null}
       {archived ? (
         <p className="bg-warn-bg rounded-md px-4 py-3 text-sm text-[#6b3f00]">
           This asset was archived on {dateTime.format(asset.archivedAt!)} UTC. It is hidden from the register; scanning
@@ -373,7 +377,7 @@ export default async function AssetDetailPage({
                   <span className="text-ink-muted">
                     {" "}
                     · {w.completedAt ? dateTime.format(w.completedAt) : ""} UTC ·{" "}
-                    {w.outcome ? OUTCOME_LABELS[w.outcome] : ""}
+                    {w.outcome ? ANY_OUTCOME_LABELS[w.outcome] : ""}
                   </span>
                   {w.resolution ? <div className="line-clamp-2">{w.resolution}</div> : null}
                 </li>
@@ -383,20 +387,119 @@ export default async function AssetDetailPage({
         </Card>
       </div>
 
+      {pm ? (
+        <Card id="pm">
+          <CardTitle
+            action={
+              can(ctx, "pm.view") ? (
+                <Link
+                  href={`/maintenance/schedule?view=all&asset=${asset.id}`}
+                  className="text-sm font-semibold text-teal-700 hover:underline"
+                >
+                  Full maintenance history
+                </Link>
+              ) : null
+            }
+          >
+            Preventive maintenance
+          </CardTitle>
+          {pm.noApprovedPlan && editable ? (
+            <p className="bg-warn-bg rounded-sm px-3 py-2 text-sm text-[#6b3f00]">
+              Needs review: this device has no approved maintenance plan. No schedule is assigned automatically —{" "}
+              <Link href="/maintenance/review" className="font-semibold underline">
+                see Needs review
+              </Link>
+              .
+            </p>
+          ) : null}
+          {pm.schedules.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Maintenance schedules for this device</caption>
+                <thead className="text-ink-muted text-left text-xs uppercase">
+                  <tr>
+                    <th className="py-2 pr-3">Plan</th>
+                    <th className="py-2 pr-3">Interval</th>
+                    <th className="py-2 pr-3">Next due</th>
+                    <th className="py-2 pr-3">Last done</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pm.schedules.map((s) => (
+                    <tr key={s.id} className="border-line border-t">
+                      <td className="py-2 pr-3">
+                        <Link href={`/maintenance/plans/${s.plan.id}`} className="text-teal-700 hover:underline">
+                          {s.plan.name}
+                        </Link>
+                        {s.status !== "ACTIVE" ? (
+                          <div className="text-ink-muted text-xs">Ended: {s.endReason}</div>
+                        ) : null}
+                        {s.status === "ACTIVE" && s.plan.status !== "ACTIVE" ? (
+                          <div className="text-ink-muted text-xs">Plan {s.plan.status.toLowerCase()}</div>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">{s.interval}</td>
+                      <td className="py-2 pr-3">
+                        {s.status === "ACTIVE" ? (
+                          <>
+                            {formatDateOnly(s.nextDue)} <DueStateBadge state={s.state} />
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">{s.lastDone ? formatDateOnly(s.lastDone) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-ink-muted text-sm">Not enrolled in any maintenance plan.</p>
+          )}
+          {pm.occurrences.length ? (
+            <div>
+              <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">Recent due dates</h3>
+              <ul className="mt-1 flex flex-col gap-1.5 text-sm">
+                {pm.occurrences.slice(0, 8).map((o) => (
+                  <li key={o.id} className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{formatDateOnly(o.due)}</span>
+                    <span>{o.plan.name}</span>
+                    <OccurrenceBadge status={o.status} />
+                    {o.workOrder ? (
+                      <Link href={`/work-orders/${o.workOrder.id}`} className="font-mono text-teal-700 hover:underline">
+                        {o.workOrder.number}
+                      </Link>
+                    ) : null}
+                    {o.completed ? (
+                      <span className="text-ink-muted">
+                        done {formatDateOnly(o.completed)} · {o.onTime ? "on time" : "late"}
+                      </span>
+                    ) : null}
+                    {o.status === "FAILED" && o.lastError ? (
+                      <span className="text-danger text-xs">{o.lastError}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card>
         <CardTitle action={<Badge tone="info">Coming in later stages</Badge>}>More maintenance records</CardTitle>
         <p className="text-ink-muted text-sm">Placeholders: these will show real records once each module is built.</p>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Preventive maintenance schedule", 6],
-            ["Calibration and safety tests", 6],
+            ["Calibration records", "later"],
             ["Spare parts used", 7],
             ["Technical documents", 8],
             ["IntellAssist troubleshooting", 9],
           ].map(([label, stage]) => (
             <li key={label} className="border-line rounded-md border border-dashed p-3 text-sm">
               <div className="font-semibold">{label}</div>
-              <div className="text-ink-muted text-xs">Not built yet · Stage {stage}</div>
+              <div className="text-ink-muted text-xs">Not built yet{stage === "later" ? "" : ` · Stage ${stage}`}</div>
             </li>
           ))}
         </ul>

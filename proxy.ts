@@ -10,7 +10,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import { safeNextPath } from "./lib/safe-next";
 
-const PUBLIC_PATHS = ["/sign-in", "/forgot-password", "/reset-password", "/api/auth"];
+// /api/cron has no session: the route itself checks the CRON_SECRET bearer token.
+const PUBLIC_PATHS = ["/sign-in", "/forgot-password", "/reset-password", "/api/auth", "/api/cron"];
 
 export function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();

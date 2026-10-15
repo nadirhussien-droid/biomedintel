@@ -14,6 +14,7 @@ import {
   changeMemberRole,
   createDepartment,
   createHospital,
+  resetMemberMfa,
 } from "@/server/services/organization-admin";
 
 const str = (form: FormData, key: string) => {
@@ -59,6 +60,17 @@ export async function changeMemberRoleAction(_prev: ActionResult | null, form: F
   const result = await runAction(
     () => changeMemberRole(ctx, { membershipId: str(form, "membershipId"), role: str(form, "role") }),
     "Role updated.",
+  );
+  if (result.ok) revalidatePath("/admin");
+  return { ...result, data: undefined } as ActionResult;
+}
+
+/** Stage 6: MFA recovery — remove a member's authenticator after verifying who they are. */
+export async function resetMemberMfaAction(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const ctx = await requireAccess();
+  const result = await runAction(
+    () => resetMemberMfa(ctx, { membershipId: str(form, "membershipId"), reason: str(form, "reason") }),
+    "Two-step verification reset. They must set up a new authenticator at their next sign-in.",
   );
   if (result.ok) revalidatePath("/admin");
   return { ...result, data: undefined } as ActionResult;

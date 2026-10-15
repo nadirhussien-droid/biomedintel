@@ -6,7 +6,7 @@ import { getWorkOrder } from "@/server/services/work-orders";
 import { code128 } from "@/server/barcode";
 import { BarcodeSvg } from "@/components/assets/barcode-svg";
 import { PrintButton } from "../../../assets/labels/print-button";
-import { CHECK_LABELS, OUTCOME_LABELS, PRIORITY_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
+import { CHECK_LABELS, ANY_OUTCOME_LABELS, PRIORITY_LABELS, WO_STATUS_LABELS } from "@/lib/validation/work-orders";
 
 export const metadata: Metadata = { title: "Job sheet" };
 
@@ -101,9 +101,58 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
         </section>
 
         <section className="mt-4">
-          <h2 className="text-[11pt] font-bold">Fault reported</h2>
+          <h2 className="text-[11pt] font-bold">{wo.planned ? "Planned work" : "Fault reported"}</h2>
           <p className="mt-1 border border-[#9aa9b8] p-2 text-[10pt] whitespace-pre-line">{wo.faultDescription}</p>
         </section>
+        {wo.checklistItems ? (
+          <section className="mt-4 break-inside-avoid">
+            <h2 className="text-[11pt] font-bold">
+              Checklist
+              {wo.testStandardCode ? ` · electrical safety to ${wo.testStandardCode} ${wo.testStandardVersion}` : ""}
+            </h2>
+            <table className="mt-1 w-full border-collapse text-[9.5pt]">
+              <thead>
+                <tr>
+                  <th className="border border-[#9aa9b8] p-1 text-left">Item</th>
+                  <th className="w-[22mm] border border-[#9aa9b8] p-1">Value</th>
+                  <th className="w-[12mm] border border-[#9aa9b8] p-1">Pass</th>
+                  <th className="w-[12mm] border border-[#9aa9b8] p-1">Fail</th>
+                  <th className="w-[12mm] border border-[#9aa9b8] p-1">N/A</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wo.checklistItems.map((i) => {
+                  const r = wo.checklistResults.find((x) => x.itemKey === i.key && x.attempt === wo.reopenCount);
+                  const mark = (c: string) => (r ? (r.result === c ? "✓" : "") : "☐");
+                  return (
+                    <tr key={i.key}>
+                      <td className="border border-[#9aa9b8] p-1">
+                        {i.label}
+                        {i.min !== null || i.max !== null
+                          ? ` (limits ${i.min ?? "—"} to ${i.max ?? "—"} ${i.unit ?? ""})`
+                          : ""}
+                      </td>
+                      <td className="border border-[#9aa9b8] p-1 text-center">
+                        {r?.value !== null && r?.value !== undefined
+                          ? `${Number(r.value)} ${r.unit ?? ""}`
+                          : i.kind === "MEASUREMENT"
+                            ? `____ ${i.unit ?? ""}`
+                            : ""}
+                      </td>
+                      <td className="border border-[#9aa9b8] p-1 text-center">{mark("PASS")}</td>
+                      <td className="border border-[#9aa9b8] p-1 text-center">{mark("FAIL")}</td>
+                      <td className="border border-[#9aa9b8] p-1 text-center">{mark("NOT_APPLICABLE")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="mt-1 text-[8.5pt]">
+              Results written on paper must be entered in BiomedIntel.ai by the technician who did the work before
+              sign-off.
+            </p>
+          </section>
+        ) : null}
 
         <section className="mt-4">
           <h2 className="text-[11pt] font-bold">Work log</h2>
@@ -138,7 +187,7 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
               </div>
               <div className={row}>
                 <span className="font-semibold">Outcome</span>
-                <span>{wo.outcome ? OUTCOME_LABELS[wo.outcome] : "—"}</span>
+                <span>{wo.outcome ? ANY_OUTCOME_LABELS[wo.outcome] : "—"}</span>
               </div>
               <div className={row}>
                 <span className="font-semibold">Checks</span>

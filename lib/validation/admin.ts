@@ -104,3 +104,14 @@ export type CreateDepartmentInput = z.input<typeof createDepartmentSchema>;
 export type ChangeMemberRoleInput = z.input<typeof changeMemberRoleSchema>;
 export type AddMemberInput = z.input<typeof addMemberSchema>;
 export type CreateOrganizationInput = z.input<typeof createOrganizationSchema>;
+
+/** Stage 6: an administrator resets a member's authenticator after verifying who they are. */
+export const resetMfaSchema = z.object({
+  membershipId: z.string().uuid("Invalid member"),
+  reason: z
+    .string()
+    .trim()
+    .min(10, "Say how you confirmed who this person is (at least 10 characters)")
+    .max(300, "At most 300 characters")
+    .regex(/^[^\u0000-\u001f\u007f]*$/, "Reason contains invalid characters"),
+});
