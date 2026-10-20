@@ -4,6 +4,7 @@ import { requireUser } from "@/server/auth/session";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { MfaSetup } from "./mfa-setup";
 import { BackupCodes } from "./backup-codes";
+import { ChangePassword } from "./change-password";
 import { SignOutButton } from "../../sign-out-button";
 
 export const metadata: Metadata = { title: "Account security" };
@@ -56,6 +57,15 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
         ) : (
           <MfaSetup />
         )}
+      </Card>
+
+      <Card>
+        <CardTitle>Password</CardTitle>
+        <p className="text-ink-muted text-sm">
+          If an administrator gave you a temporary password, replace it with your own now. Changing it signs you out on
+          your other devices.
+        </p>
+        <ChangePassword />
       </Card>
     </>
   );

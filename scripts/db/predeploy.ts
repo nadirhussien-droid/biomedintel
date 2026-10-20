@@ -3,8 +3,11 @@
 // What a hosting platform runs before each new version starts (Render's
 // "pre-deploy command"). If any step fails, the deploy stops and the previous
 // version keeps running. Steps:
-//   1. DATABASE_URL must use the restricted app user biomedintel_app, and that
-//      user must exist (created once with npm run db:create-app-role);
+//   1. work out the app's database address (DATABASE_URL, or DATABASE_URL_ADMIN
+//      + APP_DB_PASSWORD: server/db/app-url.ts); it must use the restricted
+//      user biomedintel_app. If that user does not exist yet (first deploy),
+//      create it with that password; either way prove it can sign in and
+//      cannot bypass row-level security (Stage 11);
 //   2. no migration may contain an unreviewed destructive statement
 //      (npm run db:check-migrations);
 //   3. apply pending migrations (prisma migrate deploy, using DATABASE_URL_ADMIN);
@@ -15,6 +18,8 @@ import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { Client } from "pg";
+import { APP_ROLE, appDatabaseUrl, passwordOf } from "../../server/db/app-url";
+import { ensureAppRole } from "./create-app-role";
 
 function fail(message: string): never {
   console.error(`Pre-deploy stopped: ${message}`);
@@ -22,30 +27,26 @@ function fail(message: string): never {
 }
 
 async function main() {
-  const appUrl = process.env.DATABASE_URL;
   const adminUrl = process.env.DATABASE_URL_ADMIN;
   if (!adminUrl) fail("DATABASE_URL_ADMIN is not set (the database's main connection URL).");
-  if (!appUrl) fail("DATABASE_URL is not set. See docs/DEPLOYMENT.md, step 6.");
+  const appUrl = appDatabaseUrl(process.env);
+  if (!appUrl)
+    fail("set APP_DB_PASSWORD (Render generates it from render.yaml), or DATABASE_URL. See docs/DEPLOYMENT.md.");
   let appUser = "";
   try {
     appUser = decodeURIComponent(new URL(appUrl).username);
   } catch {
     fail("DATABASE_URL is not a valid postgresql:// address.");
   }
-  if (appUser !== "biomedintel_app") {
-    fail(`DATABASE_URL must sign in as biomedintel_app, not "${appUser}". See docs/DEPLOYMENT.md, step 6.`);
+  if (appUser !== APP_ROLE) {
+    fail(`DATABASE_URL must sign in as ${APP_ROLE}, not "${appUser}". See docs/DEPLOYMENT.md.`);
   }
-  const admin = new Client({ connectionString: adminUrl });
-  await admin.connect();
+  console.log("Checking the app database user…");
   try {
-    const r = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = 'biomedintel_app'");
-    if (r.rowCount !== 1) {
-      fail(
-        "the database user biomedintel_app does not exist yet. Run npm run db:create-app-role first (docs/DEPLOYMENT.md, step 5).",
-      );
-    }
-  } finally {
-    await admin.end();
+    // Creates the user on the first deploy; afterwards only checks it.
+    await ensureAppRole(adminUrl, passwordOf(appUrl), { log: (line) => console.log(line) });
+  } catch (error) {
+    fail((error as Error).message);
   }
   for (const [label, cmd, args] of [
     ["Checking migrations", "npx", ["tsx", "scripts/db/check-migrations.ts"]],

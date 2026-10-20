@@ -6,9 +6,11 @@
 // Uses the restricted app database role (RLS applies). Prints counts only.
 import "dotenv/config";
 import { runDailyJobs } from "../server/services/daily-jobs";
-import { db } from "../server/db/client";
+import { assertRestrictedDatabaseRole, db } from "../server/db/client";
 
-runDailyJobs()
+// Same rule as the web server: never run with a role that can bypass row-level security.
+assertRestrictedDatabaseRole()
+  .then(() => runDailyJobs())
   .then((r) => {
     console.log(
       `PM: ${r.pm.created} work order(s) created · ${r.pm.missed} missed · ${r.pm.failed} failed · ${r.pm.remindersSent} reminder(s). ` +

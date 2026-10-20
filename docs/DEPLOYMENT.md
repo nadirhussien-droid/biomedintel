@@ -10,7 +10,8 @@ Words used in this guide:
 
 - **Terminal** — the text window where you type commands. On a Mac: open _Terminal_ (search with ⌘+Space). On Windows: open _PowerShell_ (Start menu → type "PowerShell").
 - **Repository ("repo")** — the project folder tracked by Git.
-- **Environment variable** — a named setting (like `DATABASE_URL`) given to the app by the host instead of being written in the code.
+- **Environment variable** — a named setting (like `BETTER_AUTH_URL`) given to the app by the host instead of being written in the code.
+- **Render Shell** — a terminal inside your browser, on the Render page of the running website. You only need it once (section 7).
 
 ---
 
@@ -41,204 +42,190 @@ Why these sizes:
 
 ## 2. What you need first
 
-1. A **GitHub** account (free), at github.com.
-2. A **Render** account, at render.com. Sign up with your GitHub account; that connects the two.
-3. On your own computer, for the one-time setup in section 5:
-   - **Node.js 22** (from nodejs.org, the "LTS" version 22.x). Check it in a terminal with `node -v`; it should print `v22.` followed by numbers.
-   - The project folder (unzip `biomedintel-stage10.zip`), and inside it run **once**:
+1. A **GitHub** account (free), at github.com, with an empty **private** repository called `biomedintel`.
+2. A **Render** account, at render.com. Sign up **with your GitHub account**; that connects the two.
 
-     ```bash
-     npm install
-     ```
+Nothing needs installing on your own computer.
 
 ---
 
-## 3. Put the code in a private GitHub repository
+## 3. Put the code in your GitHub repository
 
 Render deploys from GitHub.
 
-1. On github.com click **New repository**. Name it `biomedintel`, choose **Private**, and do **not** add a README. Click **Create repository**.
-2. In a terminal, go into the project folder. Replace the path with yours:
+**Easiest:** Claude pushes the code into your empty repository for you, if this chat session is allowed to reach your GitHub.
 
-   ```bash
-   cd ~/Downloads/biomedintel
-   ```
-
-3. The zip has no Git history, so make the folder a Git repository first. Use your own name and email:
-
-   ```bash
-   git init -b main
-   git config user.name "Your Name"
-   git config user.email "you@example.com"
-   git add -A
-   git commit -m "BiomedIntel.ai Stage 10"
-   ```
-
-4. Send the code to GitHub. Replace `YOUR-NAME` with your GitHub user name:
-
-   ```bash
-   git remote add origin https://github.com/YOUR-NAME/biomedintel.git
-   git push -u origin main
-   ```
-
-   GitHub asks you to sign in the first time (a browser window opens, or it asks for a "personal access token" — follow the link it shows).
-
-5. Check that the file `.env` is **not** in the repository on github.com. It is ignored on purpose, because it holds passwords.
-
----
-
-## 4. Create the services from `render.yaml`
-
-1. In Render: **New** → **Blueprint** → choose the `biomedintel` repository and the branch `main`.
-2. Render reads `render.yaml` and lists the three resources and one settings group (`biomedintel-staging-shared`). Check that the database plan shows **0.5c-1g**, not Free.
-3. Render asks for **`DATABASE_URL`** for the website and the daily job. You do not know it yet. Type `postgresql://pending` for now; section 6 replaces it.
-4. Click **Apply**.
-
-**What happens next is expected.** Render creates the database. The website's first deploy then **fails at the pre-deploy step** with a message that the app database user `biomedintel_app` does not exist. Nothing is broken: the safety step refused to continue. Sections 5 and 6 fix it.
-
-Note the website address Render gives you (for example `https://biomedintel-staging.onrender.com`). If it is **different** from that example, open **Environment Groups → biomedintel-staging-shared** and set `BETTER_AUTH_URL` to your exact address. Sign-ins from any other address are refused on purpose.
-
----
-
-## 5. One-time database setup (from your computer)
-
-The website must **not** connect as the database owner. It uses a restricted user, `biomedintel_app`, that can never bypass the organisation-isolation rules (row-level security). You create that user once.
-
-**5.1 Let your computer reach the database, temporarily**
-
-1. Render → `biomedintel-staging-db` → **Networking** (or **Access Control**) → add **your current IP address**. Render shows a button for it.
-2. On the database's **Info** page, copy the **External Database URL**. Keep it private: it contains the owner password.
-
-**5.2 Make a password for the app user**
+**Yourself** (needs Git and the project folder on your computer; skip if Claude did it). In a terminal inside the unzipped project folder:
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+git init -b main
+git config user.name "Your Name"
+git config user.email "you@example.com"
+git add -A
+git commit -m "BiomedIntel.ai"
+git remote add origin https://github.com/YOUR-NAME/biomedintel.git
+git push -u origin main
 ```
 
-Copy the 48-character result into a password manager. This is `APP_DB_PASSWORD`.
+Check on github.com that the file `.env` is **not** in the repository. It is ignored on purpose, because it holds passwords.
 
-**5.3 Create the app user.** Paste your values between the quotes.
+---
 
-Mac / Linux:
+## 4. Create everything from `render.yaml`
+
+1. In Render: **New** (top right) → **Blueprint**.
+2. Choose the `biomedintel` repository. If Render cannot see it, click **Configure GitHub** and give Render access to that repository.
+3. Render reads `render.yaml` and lists what it will create:
+   - `biomedintel-staging-db` (database);
+   - `biomedintel-staging` (website);
+   - `biomedintel-staging-daily` (daily job);
+   - the settings group `biomedintel-staging-shared`.
+
+   Check the database plan says **0.5c-1g** (not Free) and the region says **Singapore**.
+
+4. Give the Blueprint a name (for example `biomedintel-staging`) and click **Apply** (or **Deploy Blueprint**). Render shows the monthly cost before you confirm. This is where you start paying.
+
+You do **not** type any database address or password. Render generates two secrets (`BETTER_AUTH_SECRET`, `APP_DB_PASSWORD`) and gives the app the database's address.
+
+---
+
+## 5. Watch the first deploy
+
+Open `biomedintel-staging` → **Events** / **Logs**. In order:
+
+1. **Build** (`npm ci`, `npm run build`): a few minutes.
+2. **Pre-deploy** (`npm run db:predeploy`) prints:
+   - `Created the database user biomedintel_app.` — the restricted user the app works with. It can never bypass the rules that keep organisations apart;
+   - `OK: biomedintel_app can sign in … and cannot bypass row-level security.`;
+   - `OK: no unreviewed destructive statements.`;
+   - the migrations being applied;
+   - `Pre-deploy finished: all 20 migrations are applied.`
+3. **Deploy live.** The service shows **Live** in green.
+
+If anything fails, the deploy stops, nothing is half-changed, and the log line starting `Pre-deploy stopped:` says why (see section 12).
+
+> Rehearsed on 20 Oct 2026 on a local PostgreSQL 16 set up like a managed host (the owner is not a superuser and cannot bypass row-level security). It was given only what `render.yaml` provides and no `.env` file. The pre-deploy step created the app user, the app connected only as that user, and sign-in, MFA, the health checks and the daily job worked. **Not rehearsed:** applying migrations on Render itself. This workspace cannot download Prisma's migration engine, so an equivalent tool was used. Watch this step on the first deploy.
+
+---
+
+## 6. Check the address and the health check
+
+1. At the top of `biomedintel-staging`, Render shows the website address, for example `https://biomedintel-staging.onrender.com`.
+2. If yours is **different**, open **Environment Groups** → `biomedintel-staging-shared` → set `BETTER_AUTH_URL` to your exact address → **Save**. Then on the website: **Manual Deploy** → **Deploy latest commit**. Sign-ins from any other address are refused on purpose.
+3. Open `https://YOUR-ADDRESS/api/health/ready` in your browser. You should see `{"status":"ok","database":"ok",...}`.
+
+---
+
+## 7. Create the first administrator (once, in the browser)
+
+1. `biomedintel-staging` → **Shell** (left menu). A terminal opens in your browser.
+2. Type this, with your email and name, then press Enter:
+
+   ```bash
+   BOOTSTRAP_ADMIN_EMAIL="you@example.com" BOOTSTRAP_ADMIN_NAME="Your Name" npm run admin:bootstrap
+   ```
+
+3. It asks for a password twice. The typing is hidden; that is normal. Use a long, unique password and store it in a password manager.
+4. It ends with `✓ Platform Super Administrator created`. It refuses to run a second time.
+
+If the Shell does not accept the hidden password typing, say so and use the alternative in section 12.
+
+Then open your staging address and sign in. You must first set up an **authenticator app** (Microsoft Authenticator, Google Authenticator or similar): scan the code it shows, type the 6-digit code, and **save the backup codes** somewhere safe. You land on **/platform**.
+
+### 7b. Load the fictional pilot data (staging only)
+
+The pilot scenarios use two fictional organisations, "Coastal Health Group" and "Highland Medical Network". They hold equipment, maintenance plans, spare parts, suppliers and a demo manual: the same data every automated test uses. Load them once, in the website's **Shell**:
 
 ```bash
-DATABASE_URL_ADMIN="PASTE-EXTERNAL-URL" APP_DB_PASSWORD="PASTE-48-CHARACTERS" npm run db:create-app-role
+npm run pilot:data -- --fictional
 ```
 
-Windows PowerShell:
+It asks for **one password for all the fictional test users** (twice, hidden). Choose a new one for staging and keep it in a password manager. It then lists the test accounts, for example `amina.warsame@coastal.example` (Technician) and `james.otieno@coastal.example` (Engineering Manager). The full list with roles is in the README, "Fictional seed users".
 
-```powershell
-$env:DATABASE_URL_ADMIN="PASTE-EXTERNAL-URL"; $env:APP_DB_PASSWORD="PASTE-48-CHARACTERS"; npm run db:create-app-role
-```
+It refuses to run if:
 
-The script never prints the password. It signs in as the new user to prove the password works and that the user cannot bypass row-level security. Running it twice changes nothing; to set a new password, add `-- --reset-password`.
+- the database already has an organisation (it never mixes with other data);
+- `PILOT_DATA_ALLOWED` is not `true` (it is set for staging only in `render.yaml` and must never be set on a production copy);
+- the first administrator from step 7 does not exist yet.
 
-**5.4 Close the door again:** remove your IP address from the database's access list.
+Everything is loaded in one go, or nothing is.
 
-You create the first administrator later, in section 8.
+Rehearsed on 20 Oct 2026 on the host-like database: loaded with the isolation rules fully on; a fictional technician signed in and opened a device; the other organisation's technician got "not found"; a second run was refused.
 
----
-
-## 6. Give the website its database address
-
-1. Copy the database's **Internal Database URL**. It looks like `postgresql://biomedintel_owner:OWNERPASSWORD@dpg-xxxx-a:5432/biomedintel_staging`.
-2. Make the app version of it: replace `biomedintel_owner:OWNERPASSWORD` with `biomedintel_app:` followed by your 48-character password:
-   `postgresql://biomedintel_app:YOUR48CHARS@dpg-xxxx-a:5432/biomedintel_staging`
-3. Paste that as **`DATABASE_URL`** in **both**:
-   - `biomedintel-staging` → **Environment**;
-   - `biomedintel-staging-daily` → **Environment**.
-
-You do **not** set `DATABASE_URL_ADMIN` yourself. Render fills it in from the database, and only the pre-deploy step uses it.
-
-> Not verified: this guide was rehearsed on a local PostgreSQL configured like a managed host, not on Render itself. If the app reports an SSL error when connecting, add `?sslmode=require` to the end of `DATABASE_URL`.
+To use your own **fictional** organisation instead, skip this step. In **/platform**, create it and its first Organization Administrator, who also sets up MFA at first sign-in.
 
 ---
 
-## 7. Deploy
+## 8. Check the daily job
 
-1. `biomedintel-staging` → **Manual Deploy** → **Deploy latest commit**. (`render.yaml` turns automatic deploys off, so nothing goes live by accident.)
-2. Watch the log. The pre-deploy step (`npm run db:predeploy`) prints four checks:
-   1. the app user exists and `DATABASE_URL` uses it;
-   2. no migration contains an unreviewed destructive statement;
-   3. migrations applied;
-   4. every migration is recorded as finished.
-      If any check fails, the deploy stops and nothing changes.
-
-   > Rehearsed on 20 Oct 2026 on a local PostgreSQL 16 set up like a managed host (owner without superuser or bypass rights), with only the settings in section 13 and no `.env`: app-user creation, pre-deploy checks 1–2, the first administrator, the production server, both health checks, MFA enforcement and the daily job all worked. **Not rehearsed:** step 3 itself on Render. This workspace cannot download Prisma's migration engine, so migrations were applied with an equivalent stand-in tool. Watch the first real deploy's log.
-
-3. When it says **Live**, open `https://YOUR-ADDRESS/api/health/ready`. You should see `{"status":"ok","database":"ok",...}`. Render also polls this address and shows the service as unhealthy if it fails.
+`biomedintel-staging-daily` → **Trigger Run**. The log should end with one line starting `PM:` and no `Daily job stopped`. It then runs every day at 19:00 UTC (22:00 in Nairobi, 06:00 in Melbourne during daylight saving).
 
 ---
 
-## 8. Create the first administrator
+## 9. Visitor IP addresses
 
-The same as section 5.1: add your IP address to the database's access list, then from the project folder on your computer:
-
-Mac / Linux:
-
-```bash
-DATABASE_URL_ADMIN="PASTE-EXTERNAL-URL" BOOTSTRAP_ADMIN_EMAIL="you@example.com" BOOTSTRAP_ADMIN_NAME="Your Name" npm run admin:bootstrap
-```
-
-Windows PowerShell:
-
-```powershell
-$env:DATABASE_URL_ADMIN="PASTE-EXTERNAL-URL"; $env:BOOTSTRAP_ADMIN_EMAIL="you@example.com"; $env:BOOTSTRAP_ADMIN_NAME="Your Name"; npm run admin:bootstrap
-```
-
-It asks for a password; the typing is hidden. Use a long, unique password. Then **remove your IP address** from the access list again.
-
-Open the staging address and sign in. You are asked to set up an **authenticator app** (for example Microsoft Authenticator or Google Authenticator) before anything else. Save the backup codes it shows somewhere safe. You land on **/platform**. Create a **fictional** organisation and its first Organization Administrator, who also sets up MFA at first sign-in.
-
----
-
-## 9. Check the daily job
-
-`biomedintel-staging-daily` → **Trigger Run**. The log should end without errors. It runs every day at 19:00 UTC (22:00 in Nairobi, 06:00 in Melbourne during daylight saving).
-
----
-
-## 10. Visitor IP addresses
-
-Audit records and the per-address sign-in limit use the visitor's IP address from the request header named in `TRUSTED_IP_HEADER` (default `x-forwarded-for`). Render's own documentation does not name this header; community answers say Render sets `X-Forwarded-For`. **Check it after the first sign-in:**
+Audit records and the per-address sign-in limit read the visitor's IP address from the header named in `TRUSTED_IP_HEADER` (default `x-forwarded-for`). Render's own documentation does not name this header; community answers say Render sets `X-Forwarded-For`. **Check it once:**
 
 1. Look up your own public IP address (search "what is my IP").
-2. Sign in to staging as the Organization Administrator and make one small change, for example add a fictional department to a hospital.
-3. Open **User and Organization Administration** and scroll to the **audit log** table at the bottom. The newest line (your change) should show **your** IP address in the **IP address** column. If it shows an address starting with `10.` or similar, the header is wrong. Set `TRUSTED_IP_HEADER` in the settings group to the header Render support names, then redeploy.
+2. Sign in as the Organization Administrator and make one small change, for example add a fictional department to a hospital.
+3. Open **User and Organization Administration** and scroll to the **audit log** at the bottom. The newest line should show **your** IP address in the **IP address** column. If it shows an address starting with `10.` or similar, the header is wrong. Set `TRUSTED_IP_HEADER` in the settings group to the header Render support names, then redeploy.
 
 The per-**account** sign-in limit does not depend on this setting, so passwords stay protected either way.
 
 ---
 
-## 11. Releasing a new version
+## 10. Releasing a new version
 
-1. Push the new code to GitHub (`git push`).
-2. Render → **Manual Deploy**. The pre-deploy step applies any new migrations safely, or stops.
+1. Put the new code on GitHub (Claude can push it, or `git push`).
+2. Render → `biomedintel-staging` → **Manual Deploy** → **Deploy latest commit**. Automatic deploys are off on purpose. The pre-deploy step applies new migrations safely, or stops.
 3. Open `/api/health/ready` and sign in to check.
 
 **Never** run `npm run db:reset`, `prisma migrate reset`, `prisma db push` or any `DROP` command against staging or production. `db:reset` refuses non-local databases on purpose.
 
 ---
 
-## 12. Turning staging off
+## 11. Turning staging off
 
-To stop paying: Render → each service → **Settings** → **Suspend** (keeps the data), or **Delete**. Deleting the database deletes its data and its backups.
+To stop paying: Render → each service and the database → **Settings** → **Suspend** (keeps the data), or **Delete**. Deleting the database deletes its data and its backups.
+
+---
+
+## 12. If something goes wrong
+
+| Message or symptom                                                                   | What it means                                                                 | What to do                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pre-deploy stopped: biomedintel_app exists but signing in with its password failed` | `APP_DB_PASSWORD` was changed or regenerated after the first deploy           | In the website's **Shell**: `npm run db:create-app-role -- --reset-password` (it uses the current settings), then **Manual Deploy** again                                                                                        |
+| `… is not allowed to create or change database users`                                | The database's main user cannot create users on this host                     | Stop and ask for help. This needs a different setup, and is not expected on Render.                                                                                                                                              |
+| `Pre-deploy stopped: migration(s) …`                                                 | A migration did not finish                                                    | Do not retry blindly. Copy the log and ask for help. The previous version keeps running.                                                                                                                                         |
+| `BiomedIntel.ai configuration error … DATABASE_URL: not set`                         | The website or daily job is missing `DATABASE_URL_ADMIN` or `APP_DB_PASSWORD` | Check both exist on the service (Environment tab) and in the settings group                                                                                                                                                      |
+| Sign-in says the address is not allowed / 403                                        | `BETTER_AUTH_URL` differs from the real address                               | Section 6, step 2                                                                                                                                                                                                                |
+| `/api/health/ready` shows `unavailable`                                              | The database cannot be reached                                                | Check the database is **Available** in Render; see `docs/OPERATIONS.md`                                                                                                                                                          |
+| The Shell will not take the hidden password in section 7                             | The browser terminal does not support hidden input                            | Run `BOOTSTRAP_ADMIN_EMAIL="…" BOOTSTRAP_ADMIN_NAME="…" BOOTSTRAP_ADMIN_PASSWORD="…" npm run admin:bootstrap`. Then sign in straight away and **change that password** under Account security, because it was typed in the open. |
 
 ---
 
 ## 13. Settings reference (no secret values)
 
-| Variable                           | Where                     | Value                                                                                                           |
-| ---------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `NODE_VERSION`                     | settings group            | `22.22.0`                                                                                                       |
-| `BETTER_AUTH_SECRET`               | settings group            | generated by Render; never share it                                                                             |
-| `BETTER_AUTH_URL`                  | settings group            | your exact `https://…onrender.com` address                                                                      |
-| `REQUIRE_MFA_FOR_PRIVILEGED_ROLES` | settings group            | `true` (the app refuses to start in production with `false`)                                                    |
-| `TRUSTED_IP_HEADER`                | settings group            | `x-forwarded-for` (section 10)                                                                                  |
-| `AI_PROVIDER`                      | settings group            | empty = AI off. Never `mock` for acceptance testing                                                             |
-| `DATABASE_URL`                     | website and daily job     | `biomedintel_app` internal address (section 6)                                                                  |
-| `DATABASE_URL_ADMIN`               | website                   | filled in by Render from the database; used only by pre-deploy                                                  |
-| `AI_MODEL`, `ANTHROPIC_API_KEY`    | settings group (optional) | only if you decide to use the paid Claude API; add the key as a secret in the dashboard, never in `render.yaml` |
-| `CRON_SECRET`                      | optional                  | not needed on Render: the daily job runs `npm run jobs:daily` directly                                          |
+| Variable                           | Where                     | Value                                                                                                                                                                       |
+| ---------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_VERSION`                     | settings group            | `22.22.0`                                                                                                                                                                   |
+| `BETTER_AUTH_SECRET`               | settings group            | generated by Render; never share it                                                                                                                                         |
+| `APP_DB_PASSWORD`                  | settings group            | generated by Render: the password of the restricted app database user                                                                                                       |
+| `BETTER_AUTH_URL`                  | settings group            | your exact `https://…onrender.com` address                                                                                                                                  |
+| `REQUIRE_MFA_FOR_PRIVILEGED_ROLES` | settings group            | `true` (the app refuses to start in production with `false`)                                                                                                                |
+| `TRUSTED_IP_HEADER`                | settings group            | `x-forwarded-for` (section 9)                                                                                                                                               |
+| `AI_PROVIDER`                      | settings group            | empty = AI off. Never `mock` for acceptance testing                                                                                                                         |
+| `DATABASE_URL_ADMIN`               | website and daily job     | filled in by Render from the database. The pre-deploy step uses it to create the app user and apply migrations; the app uses it only to build its `biomedintel_app` address |
+| `DATABASE_URL`                     | not set on Render         | if set, it is used instead of the derived address (local development, other hosts)                                                                                          |
+| `AI_MODEL`, `ANTHROPIC_API_KEY`    | settings group (optional) | only if you decide to use the paid Claude API; add the key as a secret in the dashboard, never in `render.yaml`                                                             |
+| `CRON_SECRET`                      | not needed                | the daily job runs `npm run jobs:daily` directly                                                                                                                            |
 
 The full list, with explanations, is in `.env.example`.
+
+**Why the app is safe even though it can see the owner's address:** the address it builds always uses `biomedintel_app`. Both the website and the daily job check, every time they start, that their database user cannot bypass row-level security, and refuse to run if it can. The owner's address is in the same place Render keeps all of the service's secrets.
+
+---
+
+## Appendix: other hosts
+
+On a host without Render's pre-deploy step or generated values, create the app user once from a computer that can reach the database (`DATABASE_URL_ADMIN=… APP_DB_PASSWORD=… npm run db:create-app-role`). Then either set `DATABASE_URL` to the database address with user `biomedintel_app` and that password, or set `DATABASE_URL_ADMIN` and `APP_DB_PASSWORD` and let the app build it. Run `npm run db:predeploy` before starting each new version.

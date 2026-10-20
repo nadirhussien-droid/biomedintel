@@ -22,7 +22,19 @@ import { seedPreventiveMaintenance } from "./seed-pm";
 import { seedInventory } from "./seed-inventory";
 import { seedKnowledge } from "./seed-knowledge";
 
-export async function seed(db: PrismaClient, password: string, { quiet = false } = {}) {
+export async function seed(
+  db: PrismaClient,
+  password: string,
+  {
+    quiet = false,
+    onOrganization,
+  }: {
+    quiet?: boolean;
+    /** Stage 11: called right after each organisation is created, before its records
+     *  (pilot:data uses it to switch the tenant context on a managed host). */
+    onOrganization?: (organizationId: string) => Promise<void>;
+  } = {},
+) {
   const log = (msg: string) => !quiet && console.log(msg);
   if ((await db.organization.count()) > 0) {
     throw new Error("The database already has organisations. Run `npm run db:reset` for a clean development database.");
@@ -34,6 +46,7 @@ export async function seed(db: PrismaClient, password: string, { quiet = false }
     const org = await db.organization.create({
       data: { name: orgData.name, slug: orgData.slug, country: orgData.country },
     });
+    await onOrganization?.(org.id);
     const hospitals = new Map<string, { id: string; departments: Map<string, string> }>();
     for (const h of orgData.hospitals) {
       const hospital = await db.hospital.create({

@@ -227,6 +227,16 @@ Also checked, with no change needed: cookies are HttpOnly, Secure in production 
 
 **Accepted trade-off.** The per-account limit means someone who knows an email address can block that account for 15 minutes by entering wrong passwords. It unblocks itself, and the attempts are audited.
 
+## Pilot preparation (Stage 11)
+
+- **Changing your own password.** The new form on Account security uses Better Auth's `/change-password`. It requires the current password, enforces the 12-character minimum, signs out other sessions, and is rate-limited and audited (`auth.password_changed`). Tested over HTTP: a wrong current password is refused, the old password stops working, and another session is signed out.
+- **Derived database address.** When `DATABASE_URL` is unset, the app combines the host, port and database name from `DATABASE_URL_ADMIN` with the fixed user `biomedintel_app` and `APP_DB_PASSWORD` (`server/db/app-url.ts`).
+  - The owner credentials are never used to connect.
+  - Both the web server (startup check) and the daily job (new check) refuse to run if their database user can bypass row-level security.
+  - The owner address is now in the daily job's environment as well as the web service's. It is in the same secret store, and it is used only to build the address.
+- **Automatic app user.** The pre-deploy step creates `biomedintel_app` with a SCRAM verifier, so the password never appears in the database logs. It proves the user cannot bypass row-level security, and never changes an existing user's password unless asked (`--reset-password`).
+- **Fictional pilot data on staging.** `npm run pilot:data` writes as the platform administrator inside each organisation's tenant context, so row-level security is **obeyed, not bypassed**. It needs `PILOT_DATA_ALLOWED=true`, which must never be set in production. It refuses any database that already has an organisation, and runs in a single transaction.
+
 ## Authentication
 
 - No public sign-up (`disableSignUp`). People are added by administrators (temporary password shown once) or the bootstrap script.

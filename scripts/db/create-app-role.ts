@@ -1,14 +1,16 @@
 // npm run db:create-app-role
 //
 // One-time setup on a NEW hosted database (staging or production), before the
-// first migration. Creates the restricted database user "biomedintel_app"
+// first migration. On Render the pre-deploy step (npm run db:predeploy) does
+// this automatically from APP_DB_PASSWORD (Stage 11); this command is for
+// other hosts and for changing the password. Creates the restricted database user "biomedintel_app"
 // that the web app uses. It can never bypass row-level security and cannot
 // create databases or users.
 //
 // Needs:
 //   DATABASE_URL_ADMIN  the hosting provider's main (owner) connection URL
-//   APP_DB_PASSWORD     a new random password for biomedintel_app (24+ characters,
-//                       letters and digits only); generate one with
+//   APP_DB_PASSWORD     a new random password for biomedintel_app (24-128 visible
+//                       characters, no spaces); generate one with
 //                       node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
 //
 // Safety:
@@ -34,20 +36,28 @@ export function scramVerifier(password: string, salt = randomBytes(16), iteratio
   return `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey.toString("base64")}:${serverKey.toString("base64")}`;
 }
 
-async function main() {
-  const adminUrl = process.env.DATABASE_URL_ADMIN;
-  if (!adminUrl) throw new Error("Set DATABASE_URL_ADMIN to the hosting provider's main database URL.");
-  const password = process.env.APP_DB_PASSWORD ?? "";
-  if (!/^[A-Za-z0-9]{24,128}$/.test(password)) {
-    throw new Error(
-      "Set APP_DB_PASSWORD to a new random password: 24-128 letters and digits (see the comment at the top).",
-    );
-  }
-  const reset = process.argv.includes("--reset-password");
+/** A password the role may use: 24-128 visible ASCII characters (no spaces). */
+export function validAppPassword(password: string): boolean {
+  return /^[\x21-\x7e]{24,128}$/.test(password);
+}
 
+/**
+ * Creates biomedintel_app if it does not exist (or sets a new password with
+ * reset), then signs in as it to prove the password works and that it cannot
+ * bypass row-level security. Never prints or logs the password.
+ * Used by `npm run db:create-app-role` and by the pre-deploy step (Stage 11).
+ */
+export async function ensureAppRole(
+  adminUrl: string,
+  password: string,
+  options: { reset?: boolean; log?: (line: string) => void } = {},
+): Promise<{ created: boolean; database: string }> {
+  const log = options.log ?? console.log;
+  const weak = () => new Error("The app database password must be 24-128 visible characters with no spaces.");
   const admin = new Client({ connectionString: adminUrl });
   await admin.connect();
   let database = "";
+  let created = false;
   try {
     const me = await admin.query<{ db: string; user: string; createrole: boolean; superuser: boolean }>(
       `SELECT current_database() AS db, current_user AS user, r.rolcreaterole AS createrole, r.rolsuper AS superuser
@@ -57,16 +67,18 @@ async function main() {
     const exists = (await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [ROLE])).rowCount === 1;
     const verifier = admin.escapeLiteral(scramVerifier(password));
     try {
+      if ((!exists || options.reset) && !validAppPassword(password)) throw weak();
       if (!exists) {
         await admin.query(
           `CREATE ROLE ${ROLE} LOGIN PASSWORD ${verifier} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`,
         );
-        console.log(`Created the database user ${ROLE}.`);
-      } else if (reset) {
+        created = true;
+        log(`Created the database user ${ROLE}.`);
+      } else if (options.reset) {
         await admin.query(`ALTER ROLE ${ROLE} PASSWORD ${verifier}`);
-        console.log(`${ROLE} already existed; its password was changed.`);
+        log(`${ROLE} already existed; its password was changed.`);
       } else {
-        console.log(`${ROLE} already exists; nothing changed (add --reset-password to set a new password).`);
+        log(`${ROLE} already exists; nothing changed.`);
       }
       await admin.query(`GRANT CONNECT ON DATABASE ${admin.escapeIdentifier(database)} TO ${ROLE}`);
     } catch (error) {
@@ -75,7 +87,7 @@ async function main() {
           `The database user "${me.rows[0].user}" is not allowed to create or change database users ` +
             `(CREATEROLE: ${me.rows[0].createrole ? "yes" : "no"}). ` +
             "BiomedIntel.ai needs a separate restricted user for the app. See docs/DEPLOYMENT.md, " +
-            '"If the database user cannot be created", for what to do.',
+            '"If something goes wrong".',
         );
       }
       throw error;
@@ -84,7 +96,7 @@ async function main() {
     await admin.end();
   }
 
-  // Prove it: sign in as the new user and check its limits.
+  // Prove it: sign in as the role and check its limits.
   const appUrl = new URL(adminUrl);
   appUrl.username = ROLE;
   appUrl.password = password;
@@ -93,8 +105,8 @@ async function main() {
     await app.connect();
   } catch (error) {
     throw new Error(
-      `${ROLE} exists but signing in with APP_DB_PASSWORD failed (${(error as Error).message.split("\n")[0]}). ` +
-        "If the user existed before, run again with --reset-password.",
+      `${ROLE} exists but signing in with its password failed (${(error as Error).message.split("\n")[0]}). ` +
+        'The password was probably changed. See docs/DEPLOYMENT.md, "If something goes wrong".',
     );
   }
   try {
@@ -109,10 +121,23 @@ async function main() {
   } finally {
     await app.end();
   }
-  console.log(`OK: ${ROLE} can sign in to "${database}" and cannot bypass row-level security.`);
+  log(`OK: ${ROLE} can sign in to "${database}" and cannot bypass row-level security.`);
+  return { created, database };
+}
+
+async function main() {
+  const adminUrl = process.env.DATABASE_URL_ADMIN;
+  if (!adminUrl) throw new Error("Set DATABASE_URL_ADMIN to the hosting provider's main database URL.");
+  const password = process.env.APP_DB_PASSWORD ?? "";
+  if (!validAppPassword(password)) {
+    throw new Error(
+      "Set APP_DB_PASSWORD to a new random password: 24-128 visible characters, no spaces (see the comment at the top).",
+    );
+  }
+  await ensureAppRole(adminUrl, password, { reset: process.argv.includes("--reset-password") });
   console.log(
-    "Next: set DATABASE_URL on the web service to the same address as DATABASE_URL_ADMIN, " +
-      `with the user name ${ROLE} and this password (the internal address on Render).`,
+    "Next: the app uses this user automatically when DATABASE_URL_ADMIN and APP_DB_PASSWORD are set " +
+      "(or set DATABASE_URL yourself with the user name biomedintel_app and this password).",
   );
 }
 

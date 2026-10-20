@@ -335,6 +335,14 @@ Stage 10 checked and hardened everything above and prepared a **private staging*
 - [docs/SECURITY.md](docs/SECURITY.md) — every security finding and its status, plus known limitations.
 - [docs/PERMISSIONS.md](docs/PERMISSIONS.md) — what each role may do, generated from the code.
 
+## Pilot preparation (Stage 11)
+
+The pilot has **not started**; see [docs/PILOT.md](docs/PILOT.md). Stage 11 added:
+
+- **Change password** on Account security, so people can replace a temporary password.
+- **Simpler staging set-up.** Render generates the app database password, and the first deploy creates the restricted database user. You no longer type a database address or run anything on your own computer ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+- **`npm run pilot:data -- --fictional`**, which loads the fictional organisations below onto an **empty staging** database for the pilot scenarios. It only runs where `PILOT_DATA_ALLOWED=true`.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
@@ -347,27 +355,28 @@ It uses `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_NAME` from `.env`, asks for
 
 ## Everyday commands
 
-| Command                            | What it does                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`                      | Start the app with live reload at http://localhost:3000                        |
-| `npm run typecheck`                | TypeScript type checking (strict mode)                                         |
-| `npm run lint`                     | ESLint                                                                         |
-| `npm run format`                   | Format code with Prettier                                                      |
-| `npm test`                         | Run all automated tests against `biomedintel_test`                             |
-| `npm run build`                    | Production build                                                               |
-| `npm run check`                    | Type check + lint + tests + build, in that order                               |
-| `npm run db:migrate`               | Create a NEW migration after editing `prisma/schema.prisma` (development only) |
-| `npm run db:deploy`                | Apply existing migrations (safe for any environment)                           |
-| `npm run db:seed`                  | Load the fictional data into an empty development database                     |
-| `npm run db:reset`                 | **Local only**: wipe `biomedintel_dev`, re-apply migrations, re-seed           |
-| `npm run db:studio`                | Open Prisma Studio to browse the database (uses the owner role — careful)      |
-| `npm run db:test:prepare`          | Apply migrations to the test database                                          |
-| `npm run pm:generate`              | Create due preventive maintenance work orders and reminders (safe to repeat)   |
-| `npm run jobs:daily`               | The daily job: PM work orders, reminders and scheduled report snapshots        |
-| `npm run db:check-migrations`      | Refuse migrations with unreviewed destructive statements                       |
-| `npm run db:backup -- FOLDER`      | Make a checked backup of the database in `DATABASE_URL_ADMIN`                  |
-| `npm run db:restore-drill -- FILE` | Prove a backup restores (into a throwaway local database)                      |
-| `npm run docs:permissions`         | Regenerate `docs/PERMISSIONS.md` after changing permissions                    |
+| Command                             | What it does                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`                       | Start the app with live reload at http://localhost:3000                        |
+| `npm run typecheck`                 | TypeScript type checking (strict mode)                                         |
+| `npm run lint`                      | ESLint                                                                         |
+| `npm run format`                    | Format code with Prettier                                                      |
+| `npm test`                          | Run all automated tests against `biomedintel_test`                             |
+| `npm run build`                     | Production build                                                               |
+| `npm run check`                     | Type check + lint + tests + build, in that order                               |
+| `npm run db:migrate`                | Create a NEW migration after editing `prisma/schema.prisma` (development only) |
+| `npm run db:deploy`                 | Apply existing migrations (safe for any environment)                           |
+| `npm run db:seed`                   | Load the fictional data into an empty development database                     |
+| `npm run db:reset`                  | **Local only**: wipe `biomedintel_dev`, re-apply migrations, re-seed           |
+| `npm run db:studio`                 | Open Prisma Studio to browse the database (uses the owner role — careful)      |
+| `npm run db:test:prepare`           | Apply migrations to the test database                                          |
+| `npm run pm:generate`               | Create due preventive maintenance work orders and reminders (safe to repeat)   |
+| `npm run jobs:daily`                | The daily job: PM work orders, reminders and scheduled report snapshots        |
+| `npm run db:check-migrations`       | Refuse migrations with unreviewed destructive statements                       |
+| `npm run db:backup -- FOLDER`       | Make a checked backup of the database in `DATABASE_URL_ADMIN`                  |
+| `npm run db:restore-drill -- FILE`  | Prove a backup restores (into a throwaway local database)                      |
+| `npm run docs:permissions`          | Regenerate `docs/PERMISSIONS.md` after changing permissions                    |
+| `npm run pilot:data -- --fictional` | Staging only: load the fictional pilot organisations into an empty database    |
 
 ### Resetting your local database safely
 
