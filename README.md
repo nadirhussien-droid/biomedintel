@@ -343,6 +343,10 @@ The pilot has **not started**; see [docs/PILOT.md](docs/PILOT.md). Stage 11 adde
 - **Simpler staging set-up.** Render generates the app database password, and the first deploy creates the restricted database user. You no longer type a database address or run anything on your own computer ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 - **`npm run pilot:data -- --fictional`**, which loads the fictional organisations below onto an **empty staging** database for the pilot scenarios. It only runs where `PILOT_DATA_ALLOWED=true`.
 
+## Production (Stage 12)
+
+**Not deployed. The go/no-go decision on 20 Oct 2026 was NO-GO:** the pilot has not run, and there is no staging, customer or launch approval yet. See [docs/PRODUCTION.md](docs/PRODUCTION.md) for the reasons, the release and rollback rules, and where the full readiness assessment lives.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
