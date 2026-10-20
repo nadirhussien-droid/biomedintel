@@ -12,7 +12,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auditStandalone } from "@/server/audit/audit";
+import { clientIp } from "@/server/request-ip";
 import { runDailyJobs } from "@/server/services/daily-jobs";
+import { log } from "@/server/log";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
       outcome: "DENIED",
       request: {
         requestId: request.headers.get("x-request-id"),
-        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+        ipAddress: clientIp(request.headers),
         userAgent: request.headers.get("user-agent"),
       },
     });
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
     const r = await runDailyJobs();
     return NextResponse.json({ ...r.pm, reports: r.reports, reminders: r.reminders });
   } catch (error) {
-    console.error("[cron pm-generate]", (error as Error).message);
+    log.error("cron.daily_jobs_failed", { requestId: request.headers.get("x-request-id") }, error);
     return NextResponse.json({ message: "Generation stopped; see the server log." }, { status: 500 });
   }
 }

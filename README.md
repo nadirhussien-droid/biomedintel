@@ -325,6 +325,16 @@ Full details are in [docs/STAGE-9.md](docs/STAGE-9.md).
 
 The seed adds one fictional approved document (DM-Infuse 100, error code P-110).
 
+## Production readiness and staging (Stage 10)
+
+Stage 10 checked and hardened everything above and prepared a **private staging** deployment. Nothing has been deployed. Start with these guides:
+
+- [docs/STAGE-10.md](docs/STAGE-10.md) — what was checked, changed and measured.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — step-by-step staging deployment on Render, with costs.
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — environments, health checks, logs, backups, restore and incident response.
+- [docs/SECURITY.md](docs/SECURITY.md) — every security finding and its status, plus known limitations.
+- [docs/PERMISSIONS.md](docs/PERMISSIONS.md) — what each role may do, generated from the code.
+
 ## Create the first Platform Super Administrator
 
 There is no public sign-up page, and no web form can create a platform administrator. Use the script, once:
@@ -337,22 +347,27 @@ It uses `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_NAME` from `.env`, asks for
 
 ## Everyday commands
 
-| Command                   | What it does                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`             | Start the app with live reload at http://localhost:3000                        |
-| `npm run typecheck`       | TypeScript type checking (strict mode)                                         |
-| `npm run lint`            | ESLint                                                                         |
-| `npm run format`          | Format code with Prettier                                                      |
-| `npm test`                | Run all automated tests against `biomedintel_test`                             |
-| `npm run build`           | Production build                                                               |
-| `npm run check`           | Type check + lint + tests + build, in that order                               |
-| `npm run db:migrate`      | Create a NEW migration after editing `prisma/schema.prisma` (development only) |
-| `npm run db:deploy`       | Apply existing migrations (safe for any environment)                           |
-| `npm run db:seed`         | Load the fictional data into an empty development database                     |
-| `npm run db:reset`        | **Local only**: wipe `biomedintel_dev`, re-apply migrations, re-seed           |
-| `npm run db:studio`       | Open Prisma Studio to browse the database (uses the owner role — careful)      |
-| `npm run db:test:prepare` | Apply migrations to the test database                                          |
-| `npm run pm:generate`     | Create due preventive maintenance work orders and reminders (safe to repeat)   |
+| Command                            | What it does                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`                      | Start the app with live reload at http://localhost:3000                        |
+| `npm run typecheck`                | TypeScript type checking (strict mode)                                         |
+| `npm run lint`                     | ESLint                                                                         |
+| `npm run format`                   | Format code with Prettier                                                      |
+| `npm test`                         | Run all automated tests against `biomedintel_test`                             |
+| `npm run build`                    | Production build                                                               |
+| `npm run check`                    | Type check + lint + tests + build, in that order                               |
+| `npm run db:migrate`               | Create a NEW migration after editing `prisma/schema.prisma` (development only) |
+| `npm run db:deploy`                | Apply existing migrations (safe for any environment)                           |
+| `npm run db:seed`                  | Load the fictional data into an empty development database                     |
+| `npm run db:reset`                 | **Local only**: wipe `biomedintel_dev`, re-apply migrations, re-seed           |
+| `npm run db:studio`                | Open Prisma Studio to browse the database (uses the owner role — careful)      |
+| `npm run db:test:prepare`          | Apply migrations to the test database                                          |
+| `npm run pm:generate`              | Create due preventive maintenance work orders and reminders (safe to repeat)   |
+| `npm run jobs:daily`               | The daily job: PM work orders, reminders and scheduled report snapshots        |
+| `npm run db:check-migrations`      | Refuse migrations with unreviewed destructive statements                       |
+| `npm run db:backup -- FOLDER`      | Make a checked backup of the database in `DATABASE_URL_ADMIN`                  |
+| `npm run db:restore-drill -- FILE` | Prove a backup restores (into a throwaway local database)                      |
+| `npm run docs:permissions`         | Regenerate `docs/PERMISSIONS.md` after changing permissions                    |
 
 ### Resetting your local database safely
 
@@ -405,11 +420,13 @@ HTTP checks against a running server (optional):
 # terminal 1 — run the production build against the TEST database
 npm run build
 DATABASE_URL="postgresql://biomedintel_app:YOUR_APP_PASSWORD@localhost:5432/biomedintel_test" npm run start
-# terminal 2
-E2E_BASE_URL=http://localhost:3000 E2E_PASSWORD=Test-only-password-123 npm test -- tests/e2e
+# terminal 2 — one file at a time
+E2E_BASE_URL=http://localhost:3000 E2E_PASSWORD=Test-only-password-123 npx vitest run tests/e2e/routes.test.ts
 ```
 
-(Sign-in is rate-limited to 5 attempts per minute per address, so wait a minute between repeated runs.)
+The HTTP files are `routes`, `assets`, `pm`, `analytics`, `inventory`, `knowledge` and `tenant-isolation` (Stage 10: probes every module as another organisation). Sign-in is limited to 5 attempts per minute per address, so **wait one minute between files**. Running them all at once trips the limit on purpose.
+
+Stage 10 adds tests for: the per-account sign-in limit and MFA lock, cross-organisation MFA resets, production settings, log redaction, migration safety, the managed-host database policies, the permissions document, and cross-organisation changes to every module.
 
 Run the server on the address in `BETTER_AUTH_URL` (port 3000 by default): sign-in from any other address is refused with **403** on purpose.
 

@@ -36,6 +36,7 @@ import {
 import { localToday } from "@/lib/pm/dates";
 import { previousCompletePeriod } from "@/lib/analytics/period";
 import { REPORT_KIND_LABELS, scheduleSchema } from "@/lib/validation/analytics";
+import { log } from "../log";
 
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -350,7 +351,7 @@ async function generateForSchedule(
     });
   } catch (error) {
     if (isUniqueViolation(error)) return { scheduleId, outcome: "exists" };
-    console.error(`[reports] schedule ${scheduleId}:`, (error as Error)?.message);
+    log.error("reports.schedule_failed", { scheduleId }, error);
     await withTenant(scope, (tx) =>
       audit(tx, {
         organizationId,

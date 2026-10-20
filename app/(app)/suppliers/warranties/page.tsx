@@ -77,7 +77,12 @@ export default async function WarrantiesPage({ searchParams }: { searchParams: S
           r.claims.filter((c) => c.status === "DRAFT" || c.status === "SUBMITTED").length === 0 ? (
             <Empty>No open claims.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Open warranty claims</caption>
                 <thead className={tableHead}>
@@ -117,7 +122,12 @@ export default async function WarrantiesPage({ searchParams }: { searchParams: S
         ) : r.rows.length === 0 ? (
           <Empty>None in this view.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">{VIEW_LABELS[r.view]}</caption>
               <thead className={tableHead}>

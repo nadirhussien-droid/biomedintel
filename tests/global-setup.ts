@@ -1,11 +1,12 @@
 // Runs once before the test suite:
-//   1. refuses to touch any database whose name does not end in _test;
+//   1. refuses to touch any database whose name does not end in _test, or that
+//      is not on this computer;
 //   2. checks every migration has been applied to the test database;
 //   3. wipes all rows and loads the fictional seed data.
 import fs from "node:fs";
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
-import { adminClient, databaseName } from "../scripts/lib/admin-db";
+import { adminClient, databaseName, isLocalHost } from "../scripts/lib/admin-db";
 import { seed } from "../prisma/seed";
 import { TEST_PASSWORD } from "./constants";
 
@@ -17,7 +18,12 @@ export default async function setup() {
   for (const u of [url, appUrl]) {
     if (!databaseName(u).endsWith("_test"))
       throw new Error(`Refusing to run tests: "${databaseName(u)}" is not a _test database.`);
+    // Stage 10: the name alone is not enough — the tests wipe the database, so
+    // it must also be on this computer (never a hosted staging/production server).
+    const host = new URL(u).hostname;
+    if (!isLocalHost(host)) throw new Error(`Refusing to run tests: database host "${host}" is not local.`);
   }
+  if (process.env.NODE_ENV === "production") throw new Error("Refusing to run tests with NODE_ENV=production.");
 
   const db = adminClient(url);
   try {
@@ -48,7 +54,7 @@ export default async function setup() {
                test_standards, attachments, work_order_tasks, work_order_events, downtime_events,
                work_order_counters, work_orders, lifecycle_events, warranties, asset_status_history, assets, locations,
                equipment_models, equipment_categories, manufacturers, membership_scopes, memberships, departments, hospitals, organizations,
-               auth_two_factors, auth_sessions, auth_accounts, auth_verifications, users;
+               auth_throttles, auth_two_factors, auth_sessions, auth_accounts, auth_verifications, users;
       ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate;`);
     await seed(db, TEST_PASSWORD, { quiet: true });
   } finally {

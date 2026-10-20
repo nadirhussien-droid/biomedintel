@@ -3,6 +3,7 @@ import "server-only";
 import { serverEnv } from "@/server/env";
 import { AuthorizationError, NotFoundError, ValidationError } from "@/server/authz/errors";
 import { MAX_DOCUMENT_BYTES } from "@/lib/validation/knowledge";
+import { log } from "@/server/log";
 
 export const uploadJson = (status: number, body: Record<string, unknown>) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -31,6 +32,6 @@ export function uploadError(error: unknown): Response {
     return uploadJson(422, { ok: false, message: error.message, fieldErrors: error.fieldErrors });
   if (error instanceof AuthorizationError) return uploadJson(403, { ok: false, message: error.message });
   if (error instanceof NotFoundError) return uploadJson(404, { ok: false, message: "Not found." });
-  console.error("[BiomedIntel.ai] knowledge upload failed", (error as Error)?.name);
+  log.error("knowledge.upload_failed", { errorName: (error as Error)?.name });
   return uploadJson(500, { ok: false, message: "The document could not be saved." });
 }

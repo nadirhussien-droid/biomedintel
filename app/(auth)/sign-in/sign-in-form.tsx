@@ -25,7 +25,9 @@ export function SignInForm({ next = null }: { next?: string | null }) {
       setPending(false);
       // Same message for every failure: never reveal whether an email exists.
       setError(
-        error.status === 429 ? "Too many attempts. Wait a minute and try again." : "Email or password is incorrect.",
+        error.status === 429
+          ? "Too many attempts. Wait up to 15 minutes and try again, or ask your administrator."
+          : "Email or password is incorrect.",
       );
       return;
     }

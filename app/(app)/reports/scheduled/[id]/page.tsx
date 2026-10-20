@@ -52,7 +52,7 @@ function Row({ label, value }: { label: string; value: string | number }) {
 
 function SimpleTable({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Table (scroll sideways on small screens)">
       <table className="w-full text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className={tableHead}>
@@ -101,7 +101,12 @@ function Body({ kind, d }: { kind: string; d: Data }) {
         {total.due === 0 ? (
           <Empty>No planned maintenance was due in this period (compliance N/A).</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">PM compliance by department</caption>
               <thead className={tableHead}>

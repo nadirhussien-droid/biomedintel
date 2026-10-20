@@ -258,7 +258,7 @@ export async function resetMemberMfa(ctx: AccessContext, input: unknown) {
       "You cannot reset your own two-step verification. Ask another Organization Administrator.",
     );
   }
-  return withTenant(tenant(ctx), async (tx) => {
+  const result = await withTenant(tenant(ctx), async (tx) => {
     const target = await tx.membership.findUnique({
       where: { id: data.membershipId },
       select: {
@@ -272,6 +272,13 @@ export async function resetMemberMfa(ctx: AccessContext, input: unknown) {
     if (target.user.platformRole)
       throw new ValidationError("Platform administrators are recovered by the platform team.");
     if (!target.user.twoFactorEnabled) throw new ValidationError("This person has not set up two-step verification.");
+    // Stage 10: the reset removes the person's authenticator for EVERY
+    // organisation they belong to, so it is refused when they also belong to
+    // another one. The platform team handles those recoveries.
+    const [{ other }] = await tx.$queryRaw<
+      { other: boolean }[]
+    >`SELECT app_user_in_other_org(${target.userId}) AS other`;
+    if (other) return { refused: true as const, userId: target.userId, membershipId: target.id };
     await tx.twoFactor.deleteMany({ where: { userId: target.userId } });
     await tx.user.update({ where: { id: target.userId }, data: { twoFactorEnabled: false } });
     const sessions = await tx.session.deleteMany({ where: { userId: target.userId } });
@@ -284,8 +291,27 @@ export async function resetMemberMfa(ctx: AccessContext, input: unknown) {
       metadata: { membershipId: target.id, reason: data.reason, sessionsEnded: sessions.count },
       request: ctx.request,
     });
-    return { sessionsEnded: sessions.count };
+    return { refused: false as const, sessionsEnded: sessions.count };
   });
+  if (result.refused) {
+    // Recorded in its own transaction, so the refusal is kept.
+    await withTenant(tenant(ctx), (tx) =>
+      audit(tx, {
+        organizationId: ctx.organization.id,
+        actorUserId: ctx.user.id,
+        action: "auth.mfa_reset_refused",
+        outcome: "DENIED",
+        entityType: "user",
+        entityId: result.userId,
+        metadata: { membershipId: result.membershipId, reason: "member_of_another_organisation" },
+        request: ctx.request,
+      }),
+    );
+    throw new ValidationError(
+      "This person also uses BiomedIntel.ai in another organisation, so their two-step verification can only be reset by the BiomedIntel.ai platform team.",
+    );
+  }
+  return { sessionsEnded: result.sessionsEnded };
 }
 
 /**
@@ -374,6 +400,7 @@ export async function listAuditLogs(ctx: AccessContext, limit = 50) {
         actorUserId: true,
         createdAt: true,
         requestId: true,
+        ipAddress: true, // Stage 10: lets administrators spot sign-ins from unexpected places
       },
     }),
   );

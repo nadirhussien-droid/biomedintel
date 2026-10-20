@@ -28,7 +28,12 @@ export default async function ScheduledReportsPage() {
         {data.schedules.length === 0 ? (
           <Empty>No scheduled reports yet.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Scheduled reports</caption>
               <thead className={tableHead}>
@@ -91,7 +96,12 @@ export default async function ScheduledReportsPage() {
         {data.snapshots.length === 0 ? (
           <Empty>No report has been generated yet. Reports are created by the daily jobs after each period ends.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Generated reports</caption>
               <thead className={tableHead}>

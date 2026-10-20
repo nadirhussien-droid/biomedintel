@@ -55,6 +55,7 @@ import {
   type IntervalUnitValue,
 } from "@/lib/pm/dates";
 import { hasElectricalSafety, WORK_TYPE_LABELS, type ChecklistItem } from "@/lib/validation/pm";
+import { log } from "../log";
 
 /** A problem someone can fix (shown to managers as the failure reason). */
 export class GenerationError extends Error {}
@@ -365,7 +366,7 @@ async function recordFailure(
   const message = failureMessage(error);
   if (!(error instanceof GenerationError)) {
     // Server log only (never shown in the app): the technical cause.
-    console.error(`[pm-generation] schedule ${scheduleId}:`, (error as Error)?.message ?? error);
+    log.error("pm.generation_failed", { scheduleId }, error);
   }
   const orgId = actor.organization.id;
   await withTenant(scope, async (tx) => {

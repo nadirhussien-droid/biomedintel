@@ -3,6 +3,7 @@
 // seeded "DM-Infuse 100 troubleshooting guide (fictional demo)".
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { owner } from "../helpers";
+import { buildDemoPdf } from "@/scripts/lib/demo-pdf";
 
 const BASE = process.env.E2E_BASE_URL;
 const PASSWORD = process.env.E2E_PASSWORD;
@@ -239,6 +240,42 @@ describe.skipIf(!BASE || !PASSWORD)("knowledge and IntellAssist, signed in", () 
     expect(refused.status).toBe(422);
     expect(await owner.knowledgeDocument.count({ where: { title: "E2E executable (demo)" } })).toBe(0);
   });
+
+  it("a document larger than 10 MB (under the 20 MB limit) is accepted whole and fully searchable", async () => {
+    // Stage 10 fix: the request proxy used to keep only the first 10 MB of the body.
+    const pages = Array.from({ length: 1200 }, (_, p) => [
+      `Fictional large manual (e2e) page ${p + 1}`,
+      ...Array.from(
+        { length: 48 },
+        (_, l) => `Section ${p + 1}.${l}: fictional check of the demo pressure sensor ${"x".repeat(160)}`,
+      ),
+    ]);
+    const pdf = buildDemoPdf(pages, "Fictional large manual (e2e)");
+    expect(pdf.length).toBeGreaterThan(10 * 1024 * 1024);
+    expect(pdf.length).toBeLessThan(20 * 1024 * 1024);
+    const body = new FormData();
+    body.set("title", "E2E large manual (demo)");
+    body.set("docType", "SERVICE_MANUAL");
+    body.set("accessLevel", "ENGINEERING");
+    body.set("file", new Blob([Buffer.from(pdf)], { type: "application/pdf" }), "large.pdf");
+    const res = await fetch(`${BASE}/knowledge/upload`, {
+      method: "POST",
+      body,
+      headers: { cookie: amina, origin: BASE! },
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { index: string; id: string };
+    expect(json.index).toBe("INDEXED");
+    const doc = await owner.knowledgeDocument.findUniqueOrThrow({ where: { id: json.id } });
+    const v = await owner.knowledgeVersion.findUniqueOrThrow({ where: { id: doc.currentVersionId! } });
+    expect(v.pageCount).toBe(1200);
+    expect(v.sizeBytes).toBe(pdf.length);
+    // Every page was read: the last page has passages and no cut-off note was needed
+    // (the 4,000-passage cut-off note itself is covered in tests/unit/hardening.test.ts).
+    expect(v.indexNote).toBeNull();
+    const lastPage = await owner.knowledgeChunk.aggregate({ where: { versionId: v.id }, _max: { pageTo: true } });
+    expect(lastPage._max.pageTo).toBe(1200);
+  }, 120_000);
 
   it("a technician can open IntellAssist; AI is off by default and nothing leaks the key", async () => {
     const res = await fetch(`${BASE}/assist`, { headers: { cookie: amina } });

@@ -177,7 +177,12 @@ export default async function InventoryPage({ searchParams }: { searchParams: Se
               : "No parts match this view."}
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Spare parts — {INVENTORY_VIEW_LABELS[q.view]}</caption>
               <thead className={tableHead}>

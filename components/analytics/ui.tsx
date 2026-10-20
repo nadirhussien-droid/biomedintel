@@ -112,7 +112,7 @@ export function BarTable({
   const top = max ?? Math.max(1, ...rows.map((r) => r.value ?? 0));
   if (!rows.length) return <p className="text-ink-muted text-sm">No records in this period.</p>;
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Table (scroll sideways on small screens)">
       <table className="w-full text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="text-ink-muted text-left text-xs uppercase">

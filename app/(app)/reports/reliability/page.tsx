@@ -105,7 +105,12 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
         {r.failures.length === 0 ? (
           <Empty>No fault reports in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Fault reports by {groupName}</caption>
               <thead className={tableHead}>
@@ -177,7 +182,12 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
         {r.repeatAssets.length === 0 ? (
           <Empty>No asset had more than one fault report in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Equipment with repeat faults</caption>
               <thead className={tableHead}>
@@ -225,7 +235,12 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
           {r.highWorkload.length === 0 ? (
             <Empty>No asset had two or more jobs in this period.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Assets with the most maintenance work</caption>
                 <thead className={tableHead}>
@@ -259,7 +274,12 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
       {r.prolonged.length ? (
         <Card>
           <CardTitle>Out of service for more than 7 days (right now)</CardTitle>
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Prolonged downtime</caption>
               <thead className={tableHead}>

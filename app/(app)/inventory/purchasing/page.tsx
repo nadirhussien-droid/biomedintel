@@ -56,7 +56,12 @@ export default async function PurchasingPage({ searchParams }: { searchParams: S
         {r.rows.length === 0 ? (
           <Empty>No purchase requests.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Purchase requests</caption>
               <thead className={tableHead}>

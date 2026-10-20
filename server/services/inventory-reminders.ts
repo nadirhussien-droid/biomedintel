@@ -17,6 +17,7 @@ import { notify } from "./notifications";
 import { SYSTEM_SCHEDULER, systemActor } from "./work-order-core";
 import { readSettings } from "./inventory";
 import { addDays, daysBetween, localToday, toDbDate } from "@/lib/pm/dates";
+import { log } from "../log";
 
 type Member = {
   userId: string;
@@ -272,7 +273,7 @@ export async function runInventoryReminders(
     try {
       out.push({ organizationId: id, sent: await remindOrganization(id, now), failed: false });
     } catch (error) {
-      console.error(`[reminders] organisation ${id}:`, (error as Error)?.message);
+      log.error("reminders.organisation_failed", { organizationId: id }, error);
       await withTenant({ userId: SYSTEM_SCHEDULER, organizationId: id }, (tx: Tx) =>
         audit(tx, {
           organizationId: id,

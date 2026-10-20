@@ -13,6 +13,13 @@ export function databaseName(url: string): string {
   return decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
 }
 
+/** Hosts treated as "this computer" (or the local docker-compose database). */
+export const LOCAL_DB_HOSTS = ["localhost", "127.0.0.1", "::1", "[::1]", "db", "postgres"];
+export function isLocalHost(host: string): boolean {
+  // An empty host means a Unix socket on this machine (e.g. ?host=/tmp).
+  return host === "" || LOCAL_DB_HOSTS.includes(host);
+}
+
 /** Refuses to run destructive or seeding scripts against anything but a local dev/test database. */
 export function assertLocalDevelopmentDatabase(url: string, purpose: string): void {
   const name = databaseName(url);
@@ -23,7 +30,7 @@ export function assertLocalDevelopmentDatabase(url: string, purpose: string): vo
   if (!/_(dev|test)$/.test(name)) {
     throw new Error(`Refusing to ${purpose}: database "${name}" does not end in _dev or _test.`);
   }
-  if (!["localhost", "127.0.0.1", "::1", "db", "postgres"].includes(host)) {
+  if (!isLocalHost(host)) {
     throw new Error(`Refusing to ${purpose}: host "${host}" is not a local development host.`);
   }
 }

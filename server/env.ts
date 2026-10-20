@@ -17,6 +17,13 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  // Stage 10: the request header that carries the visitor's real IP address,
+  // as set by the hosting platform's proxy (lower case). Used for the per-IP
+  // rate limit and audit records. The per-account limit does not depend on it.
+  TRUSTED_IP_HEADER: z
+    .string()
+    .regex(/^[a-z0-9-]{1,64}$/, "TRUSTED_IP_HEADER must be a lower-case header name")
+    .default("x-forwarded-for"),
 });
 
 export type ServerEnv = z.infer<typeof schema>;
@@ -33,6 +40,13 @@ export function serverEnv(): ServerEnv {
   if (parsed.data.NODE_ENV === "production" && parsed.data.BETTER_AUTH_SECRET.includes("CHANGE_ME")) {
     throw new Error(
       "BETTER_AUTH_SECRET still has the placeholder value. Set a real secret before running in production.",
+    );
+  }
+  // Stage 10: MFA for privileged roles can be relaxed only on a developer's own
+  // computer. A production server refuses to start without it.
+  if (parsed.data.NODE_ENV === "production" && !parsed.data.REQUIRE_MFA_FOR_PRIVILEGED_ROLES) {
+    throw new Error(
+      "REQUIRE_MFA_FOR_PRIVILEGED_ROLES=false is not allowed in production. Remove it or set it to true.",
     );
   }
   cached = parsed.data;

@@ -64,14 +64,19 @@ async function main() {
           password: await hashPassword(password),
         },
       });
-      await tx.auditLog.create({
-        data: {
-          action: "platform.admin_bootstrapped",
-          actorUserId: id,
-          entityType: "user",
-          entityId: id,
-          metadata: { via: "cli" },
-        },
+      // createMany (no RETURNING): works on hosted databases whose owner user
+      // cannot bypass row-level security, where reading the row back is refused
+      // (found in the Stage 10 hosted-database simulation).
+      await tx.auditLog.createMany({
+        data: [
+          {
+            action: "platform.admin_bootstrapped",
+            actorUserId: id,
+            entityType: "user",
+            entityId: id,
+            metadata: { via: "cli" },
+          },
+        ],
       });
     });
     console.log(`✓ Platform Super Administrator created for ${email}.`);

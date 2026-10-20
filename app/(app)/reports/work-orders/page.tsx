@@ -101,7 +101,12 @@ export default async function WorkOrderAnalyticsPage({ searchParams }: { searchP
         {d.jobs === 0 ? (
           <Empty>No jobs were signed off in this period, so no times can be calculated.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Work order durations</caption>
               <thead className={tableHead}>
@@ -232,7 +237,12 @@ export default async function WorkOrderAnalyticsPage({ searchParams }: { searchP
           {fmtPct(w.repeats.rate)}).
         </p>
         {w.repeats.list.length ? (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Repeat repairs</caption>
               <thead className={tableHead}>
@@ -279,7 +289,12 @@ export default async function WorkOrderAnalyticsPage({ searchParams }: { searchP
           {w.workload.length === 0 ? (
             <Empty>No assigned work in this period.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Workload by engineer</caption>
                 <thead className={tableHead}>

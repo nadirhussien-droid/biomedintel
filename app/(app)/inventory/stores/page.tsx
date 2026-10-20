@@ -25,7 +25,12 @@ export default async function StoresPage() {
         {stores.length === 0 ? (
           <Empty>No stores yet.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Stores</caption>
               <thead className={tableHead}>

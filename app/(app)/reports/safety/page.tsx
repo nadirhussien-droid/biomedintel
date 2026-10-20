@@ -59,7 +59,12 @@ function HoldTable({
       {rows.length === 0 ? (
         <Empty>None.</Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Table (scroll sideways on small screens)"
+        >
           <table className="w-full text-sm">
             <caption className="sr-only">{title}</caption>
             <thead className={tableHead}>
@@ -190,7 +195,12 @@ export default async function SafetyReportPage({ searchParams }: { searchParams:
         {s.released.length === 0 ? (
           <Empty>No device was returned to service after a failed test in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Devices returned to service after a failed test</caption>
               <thead className={tableHead}>
@@ -229,7 +239,12 @@ export default async function SafetyReportPage({ searchParams }: { searchParams:
         {s.overdue.length === 0 ? (
           <Empty>No safety test or PM with electrical safety checks is overdue.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Overdue safety testing</caption>
               <thead className={tableHead}>
@@ -271,7 +286,12 @@ export default async function SafetyReportPage({ searchParams }: { searchParams:
         {s.history.rows.length === 0 ? (
           <Empty>No electrical safety results were recorded in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Electrical safety test history</caption>
               <thead className={tableHead}>

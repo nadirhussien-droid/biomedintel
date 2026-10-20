@@ -92,7 +92,7 @@ export default async function CatalogPage() {
 function Table({ head, rows }: { head: string[]; rows: string[][] }) {
   if (rows.length === 0) return <p className="text-ink-muted text-sm">Nothing added yet.</p>;
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Table (scroll sideways on small screens)">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">

@@ -207,3 +207,18 @@ export function toPassages(pages: Page[]): Passage[] {
   }
   return out;
 }
+
+/**
+ * Stage 10 fix: a note when the passage limit cut a long document short, so
+ * nobody assumes the whole file is searchable (previously silent). Null when
+ * everything was indexed.
+ */
+export function passageLimitNote(passages: Passage[]): string | null {
+  if (passages.length < MAX_CHUNKS) return null;
+  const last = passages[passages.length - 1]?.pageTo ?? null;
+  return (
+    `Only ${last ? `pages 1–${last}` : "the first part"} could be made searchable (limit: ${MAX_CHUNKS} passages). ` +
+    "The rest of the file is stored and can be opened, but it is not searched and IntellAssist does not use it. " +
+    "Split the document into smaller files to make all of it searchable."
+  );
+}

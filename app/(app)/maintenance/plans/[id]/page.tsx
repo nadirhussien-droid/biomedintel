@@ -182,7 +182,12 @@ export default async function PlanPage({
             {plan.schedules.length === 0 ? (
               <p className="text-ink-muted text-sm">No assets enrolled yet.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div
+                className="overflow-x-auto"
+                tabIndex={0}
+                role="region"
+                aria-label="Table (scroll sideways on small screens)"
+              >
                 <table className="w-full text-sm">
                   <caption className="sr-only">Enrolled assets</caption>
                   <thead className="text-ink-muted text-left text-xs uppercase">

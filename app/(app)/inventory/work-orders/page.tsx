@@ -23,7 +23,12 @@ export default async function PartsOnJobsPage() {
         {r.reservations.length === 0 ? (
           <Empty>No active reservations.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Reserved parts</caption>
               <thead className={tableHead}>
@@ -65,7 +70,12 @@ export default async function PartsOnJobsPage() {
         {r.issued.length === 0 ? (
           <Empty>No parts issued to open jobs.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Parts issued to open jobs</caption>
               <thead className={tableHead}>

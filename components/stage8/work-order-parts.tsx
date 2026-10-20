@@ -52,7 +52,12 @@ export function WorkOrderParts({
       {suggested.length ? (
         <div>
           <h3 className="text-sm font-semibold">Parts recorded as fitting this device</h3>
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Compatible parts and availability</caption>
               <thead className={tableHead}>

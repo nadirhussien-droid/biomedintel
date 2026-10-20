@@ -382,7 +382,12 @@ export default async function WorkOrderPage({
             ) : null}
           </dl>
           {wo.checklistResults.length ? (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">Checklist results</h3>
               <table className="mt-1 w-full text-sm">
                 <caption className="sr-only">Checklist results</caption>

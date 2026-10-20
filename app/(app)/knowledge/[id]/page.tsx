@@ -228,7 +228,12 @@ export default async function DocumentPage({
         {d.codes.length === 0 ? (
           <Empty>No error codes recorded from this document.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Error codes</caption>
               <thead className={tableHead}>
@@ -306,7 +311,12 @@ export default async function DocumentPage({
 
       <Card>
         <CardTitle>Versions ({d.versions.length})</CardTitle>
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Table (scroll sideways on small screens)"
+        >
           <table className="w-full text-sm">
             <caption className="sr-only">Versions</caption>
             <thead className={tableHead}>

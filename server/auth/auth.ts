@@ -9,7 +9,9 @@
 //   • Password reset links that expire after 30 minutes and sign out every
 //     other session when used.
 //   • Authenticator-app MFA (TOTP) through the two-factor plugin.
-//   • Rate limiting on sign-in, MFA and password-reset endpoints.
+//   • Rate limiting on sign-in, MFA and password-reset endpoints (per IP), plus
+//     (Stage 10) a per-account limit on failed passwords and Better Auth's
+//     per-account lock after 10 wrong MFA codes.
 //   • Audit events for sign-in, failed sign-in and sign-out, and (Stage 6)
 //     for every MFA and password event: enrolment completed, code accepted or
 //     refused, backup-code recovery, new backup codes, MFA turned off,
@@ -26,17 +28,21 @@ import { twoFactor } from "better-auth/plugins";
 import { db } from "../db/client";
 import { serverEnv } from "../env";
 import { auditStandalone } from "../audit/audit";
-import { sendEmail } from "../notifications/email";
+import { emailDeliveryAvailable, sendEmail } from "../notifications/email";
+import { clientIp } from "../request-ip";
+import { clearFailures, recordFailure, SIGN_IN_LIMIT, THROTTLE_WINDOW_MINUTES, throttleKey } from "./throttle";
 
 const env = serverEnv();
 
 function requestMetaFrom(headers: Headers | undefined) {
   return {
     requestId: headers?.get("x-request-id") ?? null,
-    ipAddress: headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    ipAddress: clientIp(headers),
     userAgent: headers?.get("user-agent") ?? null,
   };
 }
+
+const TOO_MANY = `Too many attempts. Wait ${THROTTLE_WINDOW_MINUTES} minutes and try again, or ask your administrator.`;
 
 export const auth = betterAuth({
   appName: "BiomedIntel.ai",
@@ -61,6 +67,11 @@ export const auth = betterAuth({
     resetPasswordTokenExpiresIn: 60 * 30,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
+      // Stage 10: without an email provider nothing is sent, and the reply to
+      // the browser must not differ between existing and unknown emails (no
+      // error is thrown, so the response is identical). The reset page tells
+      // people to contact their administrator instead.
+      if (!emailDeliveryAvailable()) return;
       await sendEmail({
         to: user.email,
         subject: "Reset your BiomedIntel.ai password",
@@ -90,7 +101,7 @@ export const auth = betterAuth({
   advanced: {
     cookiePrefix: "biomedintel",
     useSecureCookies: env.NODE_ENV === "production",
-    ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
+    ipAddress: { ipAddressHeaders: [env.TRUSTED_IP_HEADER] },
   },
 
   databaseHooks: {
@@ -120,9 +131,34 @@ export const auth = betterAuth({
       ) {
         throw new APIError("BAD_REQUEST", { message: "Trusted devices are not allowed. Enter a code each time." });
       }
+      // Stage 10: per-account limit on failed passwords. Every attempt counts
+      // first (atomically, so parallel guesses cannot slip through); a success
+      // clears the count. MFA codes need no extra limit: Better Auth already
+      // locks an account for 15 minutes after 10 wrong codes, whatever the IP.
+      if (ctx.path === "/sign-in/email") {
+        const email = typeof ctx.body?.email === "string" ? ctx.body.email.slice(0, 320) : "";
+        if (email) {
+          const attempts = await recordFailure(throttleKey("signin", email));
+          if (attempts > SIGN_IN_LIMIT) {
+            await auditStandalone({
+              organizationId: null,
+              actorUserId: null,
+              action: "auth.sign_in_throttled",
+              outcome: "DENIED",
+              metadata: { email: email.toLowerCase().slice(0, 200), attempts },
+              request: requestMetaFrom(ctx.headers),
+            });
+            throw new APIError("TOO_MANY_REQUESTS", { message: TOO_MANY });
+          }
+        }
+      }
     }),
     after: createAuthMiddleware(async (ctx) => {
       const request = requestMetaFrom(ctx.headers);
+      const succeeded = !(ctx.context.returned instanceof APIError);
+      if (ctx.path === "/sign-in/email" && succeeded && typeof ctx.body?.email === "string") {
+        await clearFailures(throttleKey("signin", ctx.body.email.slice(0, 320)));
+      }
       if (ctx.path === "/sign-in/email" && ctx.context.returned instanceof APIError) {
         // The email is kept for security investigation; the password never is.
         const email = typeof ctx.body?.email === "string" ? ctx.body.email.slice(0, 200).toLowerCase() : null;

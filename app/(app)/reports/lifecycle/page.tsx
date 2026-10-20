@@ -128,7 +128,12 @@ export default async function LifecyclePage({ searchParams }: { searchParams: Se
         {l.review.length === 0 ? (
           <Empty>No asset reaches its recorded end of life or expected life within this window.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Candidates for replacement review</caption>
               <thead className={tableHead}>
@@ -236,7 +241,12 @@ export default async function LifecyclePage({ searchParams }: { searchParams: Se
             {l.costs.length === 0 ? (
               <Empty>No purchase costs are recorded for these assets.</Empty>
             ) : (
-              <div className="overflow-x-auto">
+              <div
+                className="overflow-x-auto"
+                tabIndex={0}
+                role="region"
+                aria-label="Table (scroll sideways on small screens)"
+              >
                 <table className="w-full text-sm">
                   <caption className="sr-only">Acquisition cost by category</caption>
                   <thead className={tableHead}>

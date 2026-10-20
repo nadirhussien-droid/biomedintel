@@ -11,7 +11,8 @@ import { getSessionCookie } from "better-auth/cookies";
 import { safeNextPath } from "./lib/safe-next";
 
 // /api/cron has no session: the route itself checks the CRON_SECRET bearer token.
-const PUBLIC_PATHS = ["/sign-in", "/forgot-password", "/reset-password", "/api/auth", "/api/cron"];
+// /api/health answers only ok/unavailable (Stage 10), for the hosting monitor.
+const PUBLIC_PATHS = ["/sign-in", "/forgot-password", "/reset-password", "/api/auth", "/api/cron", "/api/health"];
 
 export function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
@@ -40,6 +41,10 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except static files and the brand assets.
-  matcher: ["/((?!_next/static|_next/image|brand/|favicon\\.ico).*)"],
+  // Everything except static files and the brand assets, and the two knowledge
+  // upload routes (Stage 10 fix). When this proxy runs, Next.js keeps only the
+  // first 10 MB of a request body, which silently broke documents between 10 and
+  // 20 MB. Those routes check sign-in, permission, origin and size themselves
+  // (lib/knowledge-upload.ts), so they do not need this optimistic check.
+  matcher: ["/((?!_next/static|_next/image|brand/|favicon\\.ico|knowledge/upload$|knowledge/[^/]+/versions$).*)"],
 };

@@ -37,6 +37,7 @@ import {
   storeSchema,
   transferSchema,
 } from "@/lib/validation/inventory";
+import { log } from "../log";
 
 export const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -219,7 +220,7 @@ export async function recordMovement(
     const msg = checkViolationMessage(error);
     if (msg) {
       const known = DB_MESSAGES.find(([re]) => re.test(msg));
-      if (!known) console.error("[inventory] database refused a movement:", msg);
+      if (!known) log.warn("inventory.movement_refused", { databaseMessage: msg });
       throw new ValidationError(known ? known[1] : "The database refused this stock movement.", {
         quantity: [known ? known[1] : "Refused"],
       });

@@ -19,7 +19,15 @@ import { can, requirePermission, type AccessContext } from "../authz/access";
 import { AuthorizationError, NotFoundError, ValidationError } from "../authz/errors";
 import { parseInput } from "../validation";
 import { peopleNames } from "./work-order-core";
-import { checkFile, cleanText, extract, FileRejected, toPassages, type CheckedFile } from "../knowledge/extract";
+import {
+  checkFile,
+  cleanText,
+  extract,
+  FileRejected,
+  passageLimitNote,
+  toPassages,
+  type CheckedFile,
+} from "../knowledge/extract";
 import {
   approveDocumentSchema,
   codeKey,
@@ -414,7 +422,7 @@ async function indexVersion(ctx: AccessContext, versionId: string, file: Checked
       where: { id: versionId },
       data: {
         indexStatus: passages.length ? "INDEXED" : result.status === "INDEXED" ? "NO_TEXT" : result.status,
-        indexNote: result.note,
+        indexNote: passageLimitNote(passages) ?? result.note,
         pageCount: result.pageCount,
         indexedAt: new Date(),
       },

@@ -24,7 +24,7 @@ export function VerifyForm({ next = null }: { next?: string | null }) {
       setPending(false);
       setError(
         error.status === 429
-          ? "Too many attempts. Wait a minute and try again."
+          ? "Too many attempts. Wait up to 15 minutes and try again, or ask your administrator."
           : "That code is not valid. Check your app and try again.",
       );
       return;

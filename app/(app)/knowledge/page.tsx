@@ -242,7 +242,12 @@ export default async function KnowledgePage({ searchParams }: { searchParams: Se
         {r.documents.length === 0 ? (
           <Empty>No documents match. Try fewer words or clear the filters.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Knowledge documents</caption>
               <thead className={tableHead}>

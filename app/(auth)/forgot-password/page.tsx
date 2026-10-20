@@ -1,43 +1,20 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
-import { authClient } from "@/lib/auth-client";
-import { Button } from "@/components/ui/button";
-import { InputField } from "@/components/ui/field";
+import { emailDeliveryAvailable } from "@/server/notifications/email";
+import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";
 
+// Stage 10: without an email provider no reset link can be delivered, so the
+// page says so instead of promising an email that never arrives.
 export default function ForgotPasswordPage() {
-  const [sent, setSent] = useState(false);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    const email = String(new FormData(event.currentTarget).get("email") ?? "");
-    // The answer is the same whether or not the email exists.
-    await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
-    setSent(true);
-    setPending(false);
-  }
-
+  if (emailDeliveryAvailable()) return <ForgotPasswordForm />;
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
-        <p className="text-ink-muted mt-1 text-sm">We will send a reset link that works for 30 minutes.</p>
-      </div>
-      {sent ? (
-        <p role="status" className="bg-ok-bg text-ok rounded-sm px-3 py-2 text-sm">
-          If an account exists for that email, a reset link is on its way.
+        <h1 className="text-2xl font-bold tracking-tight">Forgotten your password?</h1>
+        <p className="text-ink-muted mt-2 text-sm">
+          Password reset by email is not available yet. Contact your organisation&apos;s BiomedIntel.ai administrator,
+          who will confirm who you are and arrange a new password.
         </p>
-      ) : (
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <InputField label="Email" name="email" type="email" autoComplete="username" required />
-          <Button type="submit" disabled={pending}>
-            {pending ? "Sending…" : "Send reset link"}
-          </Button>
-        </form>
-      )}
+      </div>
       <Link href="/sign-in" className="text-center text-sm font-medium text-teal-700 hover:underline">
         Back to sign in
       </Link>

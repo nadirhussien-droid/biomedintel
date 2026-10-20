@@ -91,7 +91,12 @@ export default async function AdminPage() {
       <Card>
         <CardTitle>Members</CardTitle>
         {can(ctx, "member.add") ? <AddMemberForm roles={roleOptions} hospitals={hospitalOptions} /> : null}
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Table (scroll sideways on small screens)"
+        >
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">
@@ -167,7 +172,12 @@ export default async function AdminPage() {
         >
           Audit log
         </CardTitle>
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Table (scroll sideways on small screens)"
+        >
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">
@@ -186,6 +196,9 @@ export default async function AdminPage() {
                 <th scope="col" className="px-3 py-2">
                   Record
                 </th>
+                <th scope="col" className="px-3 py-2">
+                  IP address
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -200,6 +213,7 @@ export default async function AdminPage() {
                   </td>
                   <td className="px-3 py-2">{(a.actorUserId && nameById.get(a.actorUserId)) ?? "—"}</td>
                   <td className="text-ink-muted px-3 py-2 text-xs">{a.entityType ?? "—"}</td>
+                  <td className="text-ink-muted px-3 py-2 font-mono text-xs">{a.ipAddress ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

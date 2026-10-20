@@ -2440,3 +2440,15 @@ model AiSettings {
 
   @@map("ai_settings")
 }
+
+/// Stage 10: per-account limit on failed sign-in attempts. The key is a
+/// SHA-256 hash of "signin:<email>", never the email itself.
+/// Not tenant data: it is checked before anyone is signed in.
+model AuthThrottle {
+  key             String   @id
+  failures        Int
+  windowStartedAt DateTime @map("window_started_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("auth_throttles")
+}

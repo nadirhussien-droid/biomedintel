@@ -136,7 +136,12 @@ export default async function PartPage({
           {perStore.length === 0 ? (
             <Empty>No stores in your hospitals yet.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Stock per store and lot</caption>
                 <thead className={tableHead}>
@@ -427,7 +432,12 @@ export default async function PartPage({
         {movements.length === 0 ? (
           <Empty>No movements recorded yet.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Recent stock movements of this part</caption>
               <thead className={tableHead}>

@@ -145,7 +145,12 @@ export default async function CostReportPage({ searchParams }: { searchParams: S
             {c.costs.byAsset.length === 0 ? (
               <Empty>No recorded costs in this period.</Empty>
             ) : (
-              <div className="overflow-x-auto">
+              <div
+                className="overflow-x-auto"
+                tabIndex={0}
+                role="region"
+                aria-label="Table (scroll sideways on small screens)"
+              >
                 <table className="w-full text-sm">
                   <caption className="sr-only">Maintenance cost by asset</caption>
                   <thead className={tableHead}>
@@ -236,7 +241,12 @@ export default async function CostReportPage({ searchParams }: { searchParams: S
         {c.consumption.length === 0 ? (
           <Empty>No parts were used on work orders in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Parts consumption</caption>
               <thead className={tableHead}>
@@ -288,7 +298,12 @@ export default async function CostReportPage({ searchParams }: { searchParams: S
           {c.supplierHistory.length === 0 ? (
             <Empty>No external service was requested in this period.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Supplier service history</caption>
                 <thead className={tableHead}>

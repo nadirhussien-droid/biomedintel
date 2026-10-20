@@ -6,6 +6,11 @@
 // unavailable until an email provider is configured in a later stage.
 export type OutgoingEmail = { to: string; subject: string; text: string };
 
+/** True when emails can actually reach people (development console counts). */
+export function emailDeliveryAvailable(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 export async function sendEmail(message: OutgoingEmail): Promise<void> {
   if (process.env.NODE_ENV === "production") {
     throw new Error("Email delivery is not configured for BiomedIntel.ai yet.");

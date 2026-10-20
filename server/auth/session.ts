@@ -13,6 +13,7 @@ import { auth } from "./auth";
 import { resolveAccess, type AccessContext, type AuthUser } from "../authz/access";
 import type { RequestMeta } from "../audit/audit";
 import { serverEnv } from "../env";
+import { clientIp } from "../request-ip";
 
 export const ORG_COOKIE = "bi_org";
 export const HOSPITAL_COOKIE = "bi_hospital";
@@ -24,7 +25,7 @@ export const getRequestMeta = cache(async (): Promise<RequestMeta> => {
   const h = await headers();
   return {
     requestId: h.get("x-request-id"),
-    ipAddress: h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    ipAddress: clientIp(h),
     userAgent: h.get("user-agent"),
   };
 });

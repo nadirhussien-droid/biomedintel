@@ -289,7 +289,12 @@ export default async function SchedulePage({ searchParams }: { searchParams: Sea
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Planned maintenance</caption>
               <thead className="text-ink-muted text-left text-xs uppercase">

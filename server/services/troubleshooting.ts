@@ -53,6 +53,7 @@ import {
   TS_RESULT_LABELS,
   VERIFICATION_LABELS,
 } from "@/lib/validation/knowledge";
+import { log } from "../log";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const tenant = (ctx: AccessContext) => ({ userId: ctx.user.id, organizationId: ctx.organization.id });
@@ -970,8 +971,7 @@ export async function askAi(ctx: AccessContext, input: unknown, opts: { now?: Da
   } catch (error) {
     const timedOut = controller.signal.aborted || (error instanceof AiProviderError && error.timeout);
     const code = error instanceof AiProviderError ? error.code : "provider_error";
-    if (!(error instanceof AiProviderError))
-      console.error("[BiomedIntel.ai] AI provider error", (error as Error)?.name);
+    if (!(error instanceof AiProviderError)) log.error("ai.provider_error", { errorName: (error as Error)?.name });
     const id = await save(timedOut ? "TIMEOUT" : "FAILED", {
       errorCode: timedOut ? "timeout" : code.slice(0, 80),
       latencyMs: Date.now() - started,

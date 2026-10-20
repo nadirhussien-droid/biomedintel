@@ -84,7 +84,12 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Se
         {r.suppliers.length === 0 ? (
           <Empty>No suppliers {r.q ? "match your search" : "recorded yet"}.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Suppliers</caption>
               <thead className={tableHead}>

@@ -132,7 +132,12 @@ export default async function SupplierPage({
         {warranties.length === 0 ? (
           <Empty>None linked to this supplier in your hospitals.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Contracts and warranties</caption>
               <thead className={tableHead}>
@@ -176,7 +181,12 @@ export default async function SupplierPage({
         {services.length === 0 ? (
           <Empty>No external service recorded with this supplier.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">External service history</caption>
               <thead className={tableHead}>

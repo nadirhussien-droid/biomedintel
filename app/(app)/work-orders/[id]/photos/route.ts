@@ -9,6 +9,7 @@ import { serverEnv } from "@/server/env";
 import { AuthorizationError, NotFoundError, ValidationError } from "@/server/authz/errors";
 import { addWorkOrderPhoto } from "@/server/services/work-orders";
 import { MAX_PHOTO_BYTES } from "@/lib/validation/work-orders";
+import { log } from "@/server/log";
 
 const json = (status: number, body: Record<string, unknown>) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -43,7 +44,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (error instanceof ValidationError) return json(422, { ok: false, message: error.message });
     if (error instanceof AuthorizationError) return json(403, { ok: false, message: error.message });
     if (error instanceof NotFoundError) return json(404, { ok: false, message: "Work order not found." });
-    console.error("[BiomedIntel.ai] photo upload failed", error);
+    log.error("work_order.photo_upload_failed", { requestId: request.headers.get("x-request-id") }, error);
     return json(500, { ok: false, message: "The photo could not be saved." });
   }
 }

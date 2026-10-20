@@ -1,6 +1,7 @@
 // Turns service errors into a safe result for forms. Unexpected errors are
 // logged on the server with the request id and shown to the user generically.
 import { AuthorizationError, NotFoundError, ValidationError } from "../authz/errors";
+import { log } from "../log";
 
 export type ActionResult<T = undefined> =
   | { ok: true; message?: string; data?: T }
@@ -16,7 +17,7 @@ export async function runAction<T>(work: () => Promise<T>, success: string): Pro
     if (error instanceof NotFoundError) return { ok: false, message: error.message };
     // Re-throw Next.js redirect/notFound signals untouched.
     if (error && typeof error === "object" && "digest" in error) throw error;
-    console.error("[BiomedIntel.ai] action failed", error);
+    log.error("action.failed", {}, error);
     return { ok: false, message: "Something went wrong. Please try again." };
   }
 }

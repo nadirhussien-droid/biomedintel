@@ -23,7 +23,14 @@
     "pm:generate": "tsx scripts/pm-generate.ts",
     "jobs:daily": "tsx scripts/daily-jobs.ts",
     "postinstall": "prisma generate",
-    "db:test:prepare": "tsx scripts/db/prepare-test-db.ts"
+    "db:test:prepare": "tsx scripts/db/prepare-test-db.ts",
+    "db:check-migrations": "tsx scripts/db/check-migrations.ts",
+    "docs:permissions": "tsx scripts/docs/permissions.ts",
+    "db:backup": "tsx scripts/db/backup.ts",
+    "db:restore-drill": "tsx scripts/db/restore-drill.ts",
+    "db:create-app-role": "tsx scripts/db/create-app-role.ts",
+    "db:predeploy": "tsx scripts/db/predeploy.ts",
+    "perf:load": "tsx scripts/perf/load-synthetic.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
@@ -33,7 +40,7 @@
     "@zxing/library": "0.23.0",
     "better-auth": "1.7.6",
     "bwip-js": "4.11.4",
-    "next": "16.3.6",
+    "next": "16.3.8",
     "pdfjs-dist": "6.3.289",
     "pg": "8.16.3",
     "qrcode": "1.5.4",
@@ -52,7 +59,7 @@
     "@types/react-dom": "19",
     "dotenv": "17.2.2",
     "eslint": "9",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.3.8",
     "otplib": "12.0.1",
     "prettier": "3.6.2",
     "prettier-plugin-tailwindcss": "0.6.14",
@@ -63,6 +70,6 @@
     "vitest": "4.1.11"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.13 <23"
   }
 }

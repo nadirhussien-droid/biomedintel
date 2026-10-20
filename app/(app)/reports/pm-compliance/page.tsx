@@ -161,7 +161,12 @@ export default async function PmCompliancePage({ searchParams }: { searchParams:
         {c.due === 0 ? (
           <Empty>No planned maintenance was due in this period.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Preventive maintenance compliance breakdown</caption>
               <thead className={tableHead}>

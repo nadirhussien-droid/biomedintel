@@ -416,7 +416,12 @@ export default async function AssetDetailPage({
             </p>
           ) : null}
           {pm.schedules.length ? (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full text-sm">
                 <caption className="sr-only">Maintenance schedules for this device</caption>
                 <thead className="text-ink-muted text-left text-xs uppercase">
@@ -504,7 +509,12 @@ export default async function AssetDetailPage({
           {asset.auditEvents.length === 0 ? (
             <p className="text-ink-muted text-sm">No audit events recorded for this asset yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">

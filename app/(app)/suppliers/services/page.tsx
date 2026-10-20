@@ -31,7 +31,12 @@ export default async function ServicesPage() {
         {r.rows.length === 0 ? (
           <Empty>No supplier work outstanding.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Outstanding supplier work</caption>
               <thead className={tableHead}>

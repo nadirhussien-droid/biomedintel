@@ -1,0 +1,22 @@
+{
+  "20261015000000_barcode_labels": {
+    "reason": "Removes the unused random QR identifier columns, index, constraint and look-up function after the Code 128 barcode decision. No equipment record is removed. Applied before any real data existed.",
+    "approvedBy": "Follows Nadir's barcode standard decision (15 Oct 2026)",
+    "date": "2026-10-15"
+  },
+  "20261015010100_work_orders_security": {
+    "reason": "Marks the Stage 2 safety-critical equipment categories (defibrillators, ventilators, anaesthesia machines, infusion pumps, electrosurgical units) as safety-critical. Sets a flag only; deletes nothing.",
+    "approvedBy": "Nadir (safety-critical list decision, 15 Oct 2026)",
+    "date": "2026-10-15"
+  },
+  "20261015120100_preventive_maintenance_security": {
+    "reason": "Replaces the work_orders_fault_length constraint with an equivalent one in the same migration (drop then add); the protection is not weakened.",
+    "approvedBy": "Stage 10 review",
+    "date": "2026-10-16"
+  },
+  "20261015180100_inventory_security": {
+    "reason": "Replaces the lifecycle_events_decision_recorded constraint to allow RECORDED events, in the same migration (drop then add, stricter companion checks added).",
+    "approvedBy": "Stage 10 review",
+    "date": "2026-10-16"
+  }
+}

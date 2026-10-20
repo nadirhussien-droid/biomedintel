@@ -114,7 +114,12 @@ export default async function AssistPage({ searchParams }: { searchParams: Searc
         {r.rows.length === 0 ? (
           <Empty>No troubleshooting sessions here.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Troubleshooting sessions</caption>
               <thead className={tableHead}>

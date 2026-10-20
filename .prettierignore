@@ -7,3 +7,4 @@ app/fonts
 coverage
 test-results
 package-lock.json
+docs/PERMISSIONS.md

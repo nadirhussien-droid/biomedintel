@@ -137,7 +137,12 @@ export default async function MaintenanceOverview() {
         </p>
         {can(ctx, "pm.generate") ? <RunGenerationForm /> : null}
         {runs.length ? (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Recent generation runs</caption>
               <thead className="text-ink-muted text-left text-xs uppercase">

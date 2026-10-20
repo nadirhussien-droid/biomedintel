@@ -292,7 +292,12 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
                 <span className="text-ink-muted text-xs">Tick assets below, then print. Up to 100 at a time.</span>
               </div>
             ) : null}
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Table (scroll sideways on small screens)"
+            >
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">

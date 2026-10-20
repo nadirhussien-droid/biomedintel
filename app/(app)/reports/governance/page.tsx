@@ -101,7 +101,12 @@ export default async function GovernancePage() {
         {g.exceptions.length === 0 ? (
           <Empty>No exceptions.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Interval exceptions</caption>
               <thead className={tableHead}>

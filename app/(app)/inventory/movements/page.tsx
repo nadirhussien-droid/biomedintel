@@ -67,7 +67,12 @@ export default async function MovementsPage({ searchParams }: { searchParams: Se
         {r.rows.length === 0 ? (
           <Empty>No movements recorded.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
             <table className="w-full text-sm">
               <caption className="sr-only">Stock movements</caption>
               <thead className={tableHead}>
