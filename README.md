@@ -226,7 +226,7 @@ Open **Work Orders** in the sidebar, or use **Report a fault** on an asset page.
 - "Repaired" and "No fault found" return the device to service and end downtime, unless another open job still has it out of use.
 - "Not repairable" keeps it out of service; request decommissioning from the asset page. **Open jobs block decommissioning.**
 
-**Job sheet:** **Print job sheet** gives an A4 sheet with the work order number and the asset ID as Code 128 barcodes, so the technician can scan the device on site.
+**Job sheet:** **Print job sheet** gives an A4 sheet with the work order number and the asset ID as Code 128 barcodes, so the technician can scan the device on site. The header shows the organisation name and, if the Organisation Administrator uploaded one (Admin → Hospital logo, optional), its logo. See `docs/JOB-SHEET-BRANDING.md`.
 
 **Notifications** appear under the bell in the header: new faults, safety-critical faults, assignments, notes, completions, reopened and cancelled jobs, and decommissioning requests. They are in-app only for now; email needs an email provider.
 

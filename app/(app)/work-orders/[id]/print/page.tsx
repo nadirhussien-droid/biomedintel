@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAccess } from "@/server/auth/session";
 import { NotFoundError } from "@/server/authz/errors";
 import { getWorkOrder } from "@/server/services/work-orders";
+import { getLogoInfo } from "@/server/services/organization-logo";
 import { code128 } from "@/server/barcode";
 import { BarcodeSvg } from "@/components/assets/barcode-svg";
 import { PrintButton } from "../../../assets/labels/print-button";
@@ -20,6 +21,7 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
+  const logo = await getLogoInfo(ctx);
   const person = (uid: string | null) => (uid ? (wo.people[uid] ?? "Unknown user") : "—");
   const row = "grid grid-cols-[38mm_1fr] gap-2 border-b border-[#9aa9b8] py-1.5 text-[10pt]";
 
@@ -33,13 +35,19 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
       </div>
       <article className="mx-auto w-full max-w-[182mm] bg-white p-[6mm] text-black print:p-0">
         <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element -- static SVG, prints reliably */}
-              <img src="/brand/mark-dark.svg" alt="" className="h-6 w-6" />
-              <span className="text-[13pt] font-bold">BiomedIntel.ai</span>
+          <div className="flex min-w-0 items-center gap-3">
+            {logo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- same-origin image of unknown size; prints reliably
+              <img
+                src={`/organization-logo?v=${logo.sha256.slice(0, 12)}`}
+                alt={`${ctx.organization.name} logo`}
+                className="max-h-[14mm] max-w-[40mm] object-contain"
+              />
+            ) : null}
+            <div className="min-w-0">
+              <div className="text-[13pt] leading-tight font-bold">{ctx.organization.name}</div>
+              <div className="mt-0.5 text-[9pt]">Work order job sheet</div>
             </div>
-            <div className="mt-1 text-[9pt]">Work order job sheet · {ctx.organization.name}</div>
           </div>
           <div className="w-[60mm] text-center">
             <BarcodeSvg
@@ -51,7 +59,7 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
           </div>
         </header>
 
-        <section className="mt-4 grid grid-cols-[1fr_62mm] gap-4">
+        <section className="mt-4 grid grid-cols-[1fr_52mm] gap-4">
           <div>
             <div className={row}>
               <span className="font-semibold">Device</span>
@@ -89,14 +97,25 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
               <span>{person(wo.assignedToId)}</span>
             </div>
           </div>
-          <div className="border border-black p-2 text-center">
-            <div className="text-[8pt] font-semibold">ASSET ID</div>
+          <div className="self-start border border-black p-1.5 text-center">
+            <div className="text-[7pt] font-semibold">ASSET ID</div>
             <BarcodeSvg
               barcode={code128(wo.asset.assetTag)}
               label={`Code 128 barcode for asset ${wo.asset.assetTag}`}
-              className="h-[14mm] w-full"
+              className="h-[10mm] w-full"
             />
-            <div className="font-mono text-[14pt] font-bold tracking-wider">{wo.asset.assetTag}</div>
+            {/* The text shrinks as the ID gets longer so it always fits the box. */}
+            <div
+              className={`font-mono leading-tight font-bold break-all ${
+                wo.asset.assetTag.length <= 10
+                  ? "text-[10pt]"
+                  : wo.asset.assetTag.length <= 16
+                    ? "text-[8.5pt]"
+                    : "text-[7pt]"
+              }`}
+            >
+              {wo.asset.assetTag}
+            </div>
           </div>
         </section>
 

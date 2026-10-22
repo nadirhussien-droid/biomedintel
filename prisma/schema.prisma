@@ -332,6 +332,7 @@ model Organization {
   workOrderEvents     WorkOrderEvent[]
   workOrderTasks      WorkOrderTask[]
   attachments         Attachment[]
+  logos               OrganizationLogo[]
   downtimeEvents      DowntimeEvent[]
   notifications       Notification[]
   workOrderCounters   WorkOrderCounter[]
@@ -2451,4 +2452,26 @@ model AuthThrottle {
   updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   @@map("auth_throttles")
+}
+
+/// Optional hospital logo printed on job sheets. Append-only: the newest row is
+/// the current logo; a REMOVED row means no logo. PNG or JPEG, at most 1 MB.
+model OrganizationLogo {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  kind           String // "SET" or "REMOVED"
+  filename       String?
+  mime           String?
+  sizeBytes      Int?     @map("size_bytes")
+  sha256         String?
+  width          Int?
+  height         Int?
+  content        Bytes?
+  changedById    String   @map("changed_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("organization_logos")
 }

@@ -19,7 +19,7 @@
 | Fault reporter | Fault Reporter | Optional |
 | Platform Super Administrator | Runs the platform; not a member role | Required |
 
-## Actions (68)
+## Actions (69)
 
 ✔ = allowed. Blank = refused.
 
@@ -64,6 +64,12 @@
 | Action | Org admin | Eng. manager | Technician | Inventory mgr | Dept head | Auditor | Fault reporter |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | `audit.view` | ✔ |  |  |  |  | ✔ |  |
+
+### logo
+
+| Action | Org admin | Eng. manager | Technician | Inventory mgr | Dept head | Auditor | Fault reporter |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `logo.manage` | ✔ |  |  |  |  |  |  |
 
 ### asset
 
