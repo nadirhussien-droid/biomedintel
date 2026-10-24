@@ -33,3 +33,20 @@ Tests: `tests/integration/knowledge.test.ts`, 'a short fault description finds t
 ## Note
 
 IntellAssist only searches manuals when an AI provider is configured and AI is switched on (IntellAssist → Settings). On staging no AI provider is configured, so it reports "not configured". The search box works without AI.
+
+## Choosing equipment in the filters (fixed 24 Oct 2026)
+
+Found on staging: with "any model" the manual was found, but choosing the right
+equipment found nothing. Two causes, both fixed:
+
+- A document with **no equipment links** is general (IntellAssist already treats
+  it that way) but the search page hid it as soon as any filter was chosen. It
+  now appears under every filter, shown as "General".
+- The model, category and manufacturer lists all had to match the same link.
+  A manual linked only to the manufacturer (or only to the category) vanished
+  when all three were chosen. Now, choosing a **model** means "this exact
+  device": documents linked to that model, its category or its manufacturer
+  (and general documents) are found, and the other two lists are ignored.
+  Choosing only a category and/or manufacturer finds general documents,
+  documents linked to that category or manufacturer, and documents linked to a
+  model that fits every list chosen.
