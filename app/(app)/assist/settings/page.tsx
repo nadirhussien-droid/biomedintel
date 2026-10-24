@@ -18,6 +18,7 @@ import {
   ToneTag,
 } from "@/components/analytics/ui";
 import { aiSettingsAction } from "../actions";
+import { modelLabel } from "@/lib/ai/models";
 
 export const metadata: Metadata = { title: "AI settings and usage" };
 
@@ -42,7 +43,7 @@ export default async function AiSettingsPage() {
       </Card>
     );
   }
-  const { settings, config, limits, byStatus, names, canChange } = await getAiOverview(ctx);
+  const { settings, config, hospitalModel, byModel, limits, byStatus, names, canChange } = await getAiOverview(ctx);
   const enabled = Boolean(settings?.enabled);
   const tokens = byStatus.reduce((n, r) => n + (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0), 0);
   return (
@@ -85,7 +86,12 @@ export default async function AiSettingsPage() {
                 "Provider",
                 config.provider === "mock" ? "Mock AI (test only — not a real model)" : (config.provider ?? "None"),
               ],
-              ["Model", config.model ?? "—"],
+              [
+                "Model for your hospital",
+                config.provider === "mock"
+                  ? "Mock AI"
+                  : `${modelLabel(config.model)}${hospitalModel ? " — chosen for your hospital by BiomedIntel.ai" : " — app default"}`,
+              ],
               ["Status", config.configured ? "Configured" : (config.problem ?? "Not configured")],
               ["Timeout", `${Math.round(limits.timeoutMs / 1000)} s`],
               ["Maximum reply length", `${fmtInt(limits.maxOutputTokens)} tokens`],
@@ -126,6 +132,31 @@ export default async function AiSettingsPage() {
             ) : null}
           </tbody>
         </table>
+        {byModel.length ? (
+          <table className="mt-4 w-full text-sm">
+            <caption className="text-ink-muted pb-1 text-left text-xs font-semibold">
+              Successful requests this month, by model
+            </caption>
+            <thead className={tableHead}>
+              <tr>
+                <th className={th}>Model</th>
+                <th className={thr}>Requests</th>
+                <th className={thr}>Input tokens</th>
+                <th className={thr}>Output tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byModel.map((r) => (
+                <tr key={r.model ?? "none"} className={rowCls}>
+                  <td className={td}>{modelLabel(r.model)}</td>
+                  <td className={tdr}>{fmtInt(r._count._all)}</td>
+                  <td className={tdr}>{fmtInt(r._sum.inputTokens ?? 0)}</td>
+                  <td className={tdr}>{fmtInt(r._sum.outputTokens ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
         <p className="text-ink-muted text-xs">
           Total tokens this month: {fmtInt(tokens)} of {fmtInt(limits.orgTokensPerMonth)}. Token counts are those
           reported by the provider; cost depends on your provider agreement and is not estimated here.

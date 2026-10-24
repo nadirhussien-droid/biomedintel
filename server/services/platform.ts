@@ -7,10 +7,10 @@
 import { withTenant } from "../db/tenant";
 import { audit, auditStandalone } from "../audit/audit";
 import type { AuthUser } from "../authz/access";
-import { AuthorizationError, ValidationError } from "../authz/errors";
+import { AuthorizationError, NotFoundError, ValidationError } from "../authz/errors";
 import { parseInput, isUniqueViolation } from "../validation";
 import { findOrCreateUserWithPassword, generateTemporaryPassword } from "../auth/users";
-import { createOrganizationSchema } from "@/lib/validation/admin";
+import { createOrganizationSchema, setOrganizationAiModelSchema } from "@/lib/validation/admin";
 import type { RequestMeta } from "../audit/audit";
 
 async function requirePlatform(user: AuthUser, action: string, request?: RequestMeta) {
@@ -32,7 +32,7 @@ export async function listOrganizations(user: AuthUser, request?: RequestMeta) {
   return withTenant({ userId: user.id, organizationId: null }, (tx) =>
     tx.organization.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true, country: true, status: true, createdAt: true },
+      select: { id: true, name: true, slug: true, country: true, status: true, aiModel: true, createdAt: true },
     }),
   );
 }
@@ -76,4 +76,34 @@ export async function createOrganization(user: AuthUser, input: unknown, request
       throw new ValidationError("That organisation slug is already taken.", { slug: ["Already in use"] });
     throw error;
   }
+}
+
+/**
+ * Choose the IntellAssist model for one hospital (platform staff only).
+ * The database enforces the same rule, so a hospital administrator cannot do this.
+ * Changing it does not touch any hospital data; it applies to the next AI request.
+ */
+export async function setOrganizationAiModel(user: AuthUser, input: unknown, request?: RequestMeta) {
+  await requirePlatform(user, "platform.organization.ai_model", request);
+  const data = parseInput(setOrganizationAiModelSchema, input);
+  return withTenant({ userId: user.id, organizationId: null }, async (tx) => {
+    const before = await tx.organization.findUnique({
+      where: { id: data.organizationId },
+      select: { id: true, aiModel: true },
+    });
+    if (!before) throw new NotFoundError("Organisation");
+    if (before.aiModel === data.model) return { changed: false, model: data.model };
+    await tx.organization.update({ where: { id: before.id }, data: { aiModel: data.model } });
+    await tx.$executeRaw`SELECT set_config('app.org_id', ${before.id}, true)`;
+    await audit(tx, {
+      organizationId: before.id,
+      actorUserId: user.id,
+      action: "organization.ai_model_changed",
+      entityType: "organization",
+      entityId: before.id,
+      metadata: { from: before.aiModel, to: data.model },
+      request,
+    });
+    return { changed: true, model: data.model };
+  });
 }

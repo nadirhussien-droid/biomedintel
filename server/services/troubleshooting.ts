@@ -601,7 +601,8 @@ export async function getSession(ctx: AccessContext, id: string) {
       ...suggestions.map((x) => x.feedbackById),
     ]);
     const settings = await tx.aiSettings.findUnique({ where: { organizationId: ctx.organization.id } });
-    const config = aiConfig();
+    const org = await tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } });
+    const config = aiConfig(org?.aiModel);
     const hazards = hazardFlags(
       s.faultDescription,
       s.symptoms,
@@ -851,12 +852,26 @@ async function usageCheck(tx: Tx, ctx: AccessContext, now: Date) {
   return null;
 }
 
+/** The model platform staff chose for this hospital, or null for the app default. */
+export async function organizationAiModel(ctx: AccessContext): Promise<string | null> {
+  const org = await withTenant(tenant(ctx), (tx) =>
+    tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } }),
+  );
+  return org?.aiModel ?? null;
+}
+
+/** AI configuration as this hospital sees it (its own model, else the app default). */
+export async function getEffectiveAiConfig(ctx: AccessContext) {
+  return aiConfig(await organizationAiModel(ctx));
+}
+
 export async function askAi(ctx: AccessContext, input: unknown, opts: { now?: Date } = {}): Promise<AskResult> {
   await requirePermission(ctx, "troubleshoot.work", { entityType: "troubleshooting_session" });
   const data = parseInput(askSchema, input);
   const now = opts.now ?? new Date();
-  const provider = getAiProvider();
-  const config = aiConfig();
+  const orgModel = await organizationAiModel(ctx);
+  const provider = getAiProvider(orgModel);
+  const config = aiConfig(orgModel);
 
   // 1. Checks and evidence, read inside the person's own RLS context.
   const prep = await withTenant(tenant(ctx), async (tx) => {
@@ -1123,7 +1138,24 @@ export async function getAiOverview(ctx: AccessContext, now = new Date()) {
       _sum: { inputTokens: true, outputTokens: true },
     });
     const names = settings?.changedById ? await peopleNames(tx, [settings.changedById]) : {};
-    return { settings, config: aiConfig(), limits: aiLimits(), byStatus, names, canChange: can(ctx, "ai.settings") };
+    const org = await tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } });
+    // Requests this month per model, so the hospital can see what was used where.
+    const byModel = await tx.aiRequest.groupBy({
+      by: ["model"],
+      where: { createdAt: { gte: month }, status: "SUCCEEDED" },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true },
+    });
+    return {
+      settings,
+      config: aiConfig(org?.aiModel),
+      hospitalModel: org?.aiModel ?? null,
+      byModel,
+      limits: aiLimits(),
+      byStatus,
+      names,
+      canChange: can(ctx, "ai.settings"),
+    };
   });
 }
 

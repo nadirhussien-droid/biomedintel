@@ -36,7 +36,8 @@ import { AiProviderError, mockProvider, setAiProviderForTests, type AiProvider }
 import { REMOVED_DECISION, redact } from "@/server/ai/safety";
 import { checkFile, FileRejected, toPassages } from "@/server/knowledge/extract";
 import { buildDemoPdf } from "@/scripts/lib/demo-pdf";
-import { contextFor, owner } from "../helpers";
+import { setOrganizationAiModel } from "@/server/services/platform";
+import { contextFor, orgId, owner } from "../helpers";
 
 const C = "coastal-health";
 const H = "highland-medical";
@@ -748,6 +749,63 @@ describe("AI assistance", () => {
       );
       expect(Number(leaked[0].n)).toBe(0);
     } finally {
+      server.close();
+    }
+  });
+
+  it("a hospital model chosen by platform staff is the one sent to the provider", async () => {
+    const id = randomUUID();
+    await owner.user.create({
+      data: {
+        id,
+        name: "T",
+        email: `platform-${id}@biomedintel.example`,
+        platformRole: "SUPER_ADMIN",
+        twoFactorEnabled: true,
+      },
+    });
+    const admin = { id, name: "T", email: "p", twoFactorEnabled: true, isPlatformAdmin: true };
+    const coastal = await orgId(C);
+    let sentModel: string | undefined;
+    const server: Server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        sentModel = JSON.parse(raw).model;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  missing_information: [],
+                  clarifying_questions: [],
+                  causes: [{ cause: "Sensor cell exhausted", citations: ["S1"] }],
+                }),
+              },
+            ],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    process.env.AI_PROVIDER = "anthropic";
+    process.env.AI_MODEL = "test-model-1";
+    process.env.ANTHROPIC_API_KEY = "sk-test-not-real";
+    process.env.AI_BASE_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    process.env.AI_USER_HOURLY_LIMIT = "1000";
+    try {
+      await setOrganizationAiModel(admin, { organizationId: coastal, model: "claude-haiku-5-5" });
+      const r = await askAi(await james(), { sessionId });
+      expect(r.status).toBe("SUCCEEDED");
+      expect(sentModel).toBe("claude-haiku-5-5");
+      const req = await owner.aiRequest.findUniqueOrThrow({ where: { id: r.requestId } });
+      expect(req.model).toBe("claude-haiku-5-5");
+    } finally {
+      await setOrganizationAiModel(admin, { organizationId: coastal, model: "default" });
       server.close();
     }
   });
