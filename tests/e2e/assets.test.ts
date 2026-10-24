@@ -107,6 +107,15 @@ describe.skipIf(!BASE || !PASSWORD)("equipment pages, signed in as a technician"
     expect(page).toContain("No equipment matches these filters");
   });
 
+  it("the register stays closed until someone searches, filters or asks for the full list", async () => {
+    const closed = await (await get(`/assets?hospital=all&department=all`)).text();
+    expect(closed).toContain("Search or choose a filter to see equipment");
+    expect(closed).not.toContain("INF-0101");
+    const all = await (await get(`/assets?all=1&hospital=all&department=all`)).text();
+    expect(all).not.toContain("Search or choose a filter to see equipment");
+    expect(all).toContain("INF-0101");
+  });
+
   it("prints labels only for permitted assets, with a Code 128 barcode and no internal details", async () => {
     const mine = await assetRow("coastal-health", "INF-0101");
     const theirs = await assetRow("highland-medical", "VEN-0001");
