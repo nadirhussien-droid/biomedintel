@@ -61,6 +61,10 @@ export const PERMISSIONS = {
   ],
   "feedback.manage": ["ORG_ADMIN"],
 
+  // Test equipment and calibration records (safety analysers and similar tools).
+  "testing.view": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN", "INVENTORY_MANAGER", "AUDITOR"],
+  "testing.manage": ["ORG_ADMIN", "ENGINEERING_MANAGER", "TECHNICIAN"],
+
   // Equipment assets (Stage 4)
   "asset.view": [
     "ORG_ADMIN",
