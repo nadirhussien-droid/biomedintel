@@ -29,6 +29,10 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Render's build machine has about 48 processors, and Next.js starts one
+  // worker per processor (47 on the 24 Oct 2026 deploy), each loading the whole
+  // app: the build ran out of memory (over 8 GB). Two workers use about 2.5 GB.
+  experimental: { cpus: 2 },
   serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg", "sharp", "pdfjs-dist", "pdfkit", "exceljs"],
   async headers() {
     return [
