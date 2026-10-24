@@ -15,7 +15,14 @@ import { audit } from "../audit/audit";
 import { requireHospitalAccess, requirePermission, type AccessContext } from "../authz/access";
 import { ValidationError } from "../authz/errors";
 import { MAX_IMPORT_ROWS, type ImportRow } from "@/lib/asset-import";
-import { EDITABLE_STATUSES, RISK_CLASSES, assetTagSchema, createAssetSchema } from "@/lib/validation/assets";
+import {
+  EDITABLE_STATUSES,
+  parseAppliedPartType,
+  parseElectricalClass,
+  RISK_CLASSES,
+  assetTagSchema,
+  createAssetSchema,
+} from "@/lib/validation/assets";
 import { createAsset } from "./assets";
 import { createCategory, createLocation, createManufacturer, createModel } from "./equipment-catalog";
 
@@ -45,7 +52,12 @@ export type ImportPreview = {
   notes: string[];
 };
 
-type Cleaned = ImportRow & { statusValue: (typeof EDITABLE_STATUSES)[number]; riskValue: string | null };
+type Cleaned = ImportRow & {
+  statusValue: (typeof EDITABLE_STATUSES)[number];
+  riskValue: string | null;
+  electricalValue: string | null;
+  appliedValue: string | null;
+};
 
 const STATUS_WORDS: Record<string, (typeof EDITABLE_STATUSES)[number]> = {
   "in service": "IN_SERVICE",
@@ -76,6 +88,8 @@ function coerceRows(raw: unknown): ImportRow[] {
       location: opt(o.location, 300),
       status: opt(o.status, 60),
       riskClass: opt(o.riskClass, 30),
+      electricalClass: opt(o.electricalClass, 40),
+      appliedPartType: opt(o.appliedPartType, 40),
       purchaseDate: opt(o.purchaseDate, 30),
       supplier: opt(o.supplier, 300),
       notes: opt(o.notes, 2500),
@@ -190,6 +204,16 @@ async function plan(ctx: AccessContext, hospitalId: string, departmentId: string
         if ((RISK_CLASSES as readonly string[]).includes(rc)) riskValue = rc;
         else warnings.push(`Risk class "${r.riskClass}" is not recognised: left blank.`);
       }
+      let electricalValue: string | null = null;
+      if (r.electricalClass) {
+        electricalValue = parseElectricalClass(r.electricalClass);
+        if (!electricalValue) warnings.push(`Electrical class "${r.electricalClass}" is not recognised: left blank.`);
+      }
+      let appliedValue: string | null = null;
+      if (r.appliedPartType) {
+        appliedValue = parseAppliedPartType(r.appliedPartType);
+        if (!appliedValue) warnings.push(`Applied part type "${r.appliedPartType}" is not recognised: left blank.`);
+      }
       let purchaseDate = r.purchaseDate;
 
       // Everything else the single-asset form checks (lengths, dates, characters).
@@ -206,6 +230,8 @@ async function plan(ctx: AccessContext, hospitalId: string, departmentId: string
         description: r.notes ?? "",
         status: statusValue,
         riskClass: riskValue ?? "",
+        electricalClass: electricalValue ?? "",
+        appliedPartType: appliedValue ?? "",
         purchaseDate: purchaseDate ?? "",
         purchaseCost: "",
         purchaseCurrency: "",
@@ -251,7 +277,7 @@ async function plan(ctx: AccessContext, hospitalId: string, departmentId: string
       if (r.location && !locNames.has(key(r.location))) newLoc.add(key(r.location));
       out.push({ ...base, name, outcome: "NEW", problems: [], warnings });
       work.push({
-        row: { ...r, name, assetTag: tag, purchaseDate, statusValue, riskValue },
+        row: { ...r, name, assetTag: tag, purchaseDate, statusValue, riskValue, electricalValue, appliedValue },
         confirmSerial: serialWarn,
         outcome: "NEW",
       });
@@ -294,6 +320,8 @@ export type ImportResult = {
   createdCatalog: { manufacturers: number; categories: number; models: number; locations: number };
   /** The asset IDs that were created, for the reconciliation list. */
   createdTags: string[];
+  /** Created assets still missing electrical class, applied part type, risk category or serial number. */
+  needDetails: number;
 };
 
 /** Save the rows that passed. The person must have confirmed they are allowed to use the data. */
@@ -338,6 +366,7 @@ export async function importAssets(
   const made = { manufacturers: 0, categories: 0, models: 0, locations: 0 };
   const failed: ImportResult["failed"] = [];
   const createdTags: string[] = [];
+  let needDetails = 0;
 
   for (const { row, confirmSerial } of work) {
     try {
@@ -399,6 +428,8 @@ export async function importAssets(
         description: row.notes ?? "",
         status: row.statusValue,
         riskClass: row.riskValue ?? "",
+        electricalClass: row.electricalValue ?? "",
+        appliedPartType: row.appliedValue ?? "",
         purchaseDate: row.purchaseDate ?? "",
         commissionedAt: "",
         eolDate: "",
@@ -407,6 +438,7 @@ export async function importAssets(
         confirmDuplicateSerial: confirmSerial,
       });
       createdTags.push(row.assetTag);
+      if (!row.electricalValue || !row.appliedValue || !row.riskValue || !row.serialNumber) needDetails++;
     } catch (error) {
       const reason = error instanceof ValidationError ? error.message : "Could not be saved.";
       failed.push({ line: row.line, assetTag: row.assetTag, reason });
@@ -448,5 +480,6 @@ export async function importAssets(
     ],
     createdCatalog: made,
     createdTags,
+    needDetails,
   };
 }

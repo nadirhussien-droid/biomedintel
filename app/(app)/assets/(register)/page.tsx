@@ -42,6 +42,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
     "manufacturer",
     "status",
     "risk",
+    "incomplete",
     "archived",
     "sort",
     "dir",
@@ -61,6 +62,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
         raw.manufacturer ||
         raw.status ||
         raw.risk ||
+        raw.incomplete ||
         (raw.archived && raw.archived !== "exclude") ||
         (raw.hospital && raw.hospital !== "all") ||
         (raw.department && raw.department !== "all"),
@@ -88,6 +90,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
       manufacturer: q.manufacturer,
       status: q.status,
       risk: q.risk,
+      incomplete: q.incomplete,
       archived: q.archived === "exclude" ? undefined : q.archived,
       sort: q.sort === "assetTag" ? undefined : q.sort,
       dir: q.dir === "asc" ? undefined : q.dir,
@@ -131,7 +134,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
                 href="/assets/import"
                 className={`${linkButton} border-line-strong text-navy-900 hover:bg-surface-sunken bg-white`}
               >
-                Upload many
+                Upload assets
               </Link>
             ) : null}
             {can(ctx, "asset.create") ? (
@@ -237,6 +240,10 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
                 {RISK_LABELS[r]}
               </option>
             ))}
+          </Filter>
+          <Filter label="Details" name="incomplete" value={q.incomplete ?? ""}>
+            <option value="">All assets</option>
+            <option value="1">Details missing</option>
           </Filter>
           <Filter label="Archived" name="archived" value={q.archived}>
             <option value="exclude">Hide archived</option>

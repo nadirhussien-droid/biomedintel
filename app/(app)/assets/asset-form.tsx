@@ -4,7 +4,16 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldShell, InputField, SelectField } from "@/components/ui/field";
-import { EDITABLE_STATUSES, RISK_CLASSES, RISK_LABELS, STATUS_LABELS } from "@/lib/validation/assets";
+import {
+  APPLIED_PART_LABELS,
+  APPLIED_PART_TYPES,
+  ELECTRICAL_CLASSES,
+  ELECTRICAL_CLASS_LABELS,
+  EDITABLE_STATUSES,
+  RISK_CLASSES,
+  RISK_LABELS,
+  STATUS_LABELS,
+} from "@/lib/validation/assets";
 import { createAssetAction, updateAssetAction, type FormState } from "./actions";
 
 export type AssetFormOptions = {
@@ -34,6 +43,8 @@ const EMPTY: Values = {
   description: "",
   status: "IN_SERVICE",
   riskClass: "",
+  electricalClass: "",
+  appliedPartType: "",
   purchaseDate: "",
   commissionedAt: "",
   eolDate: "",
@@ -273,6 +284,34 @@ function AssetFormFields({
           {RISK_CLASSES.map((r) => (
             <option key={r} value={r}>
               {RISK_LABELS[r]}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Electrical class"
+          name="electricalClass"
+          defaultValue={values.electricalClass}
+          error={err("electricalClass")}
+          hint="Class I, II or III as printed on the rating plate."
+        >
+          <option value="">Not recorded</option>
+          {ELECTRICAL_CLASSES.map((c) => (
+            <option key={c} value={c}>
+              {ELECTRICAL_CLASS_LABELS[c]}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Applied part type"
+          name="appliedPartType"
+          defaultValue={values.appliedPartType}
+          error={err("appliedPartType")}
+          hint="Type B, BF or CF. Choose No applied part if the device touches no patient."
+        >
+          <option value="">Not recorded</option>
+          {APPLIED_PART_TYPES.map((c) => (
+            <option key={c} value={c}>
+              {APPLIED_PART_LABELS[c]}
             </option>
           ))}
         </SelectField>

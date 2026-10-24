@@ -23,22 +23,29 @@ export type ImportRow = {
   location: string | null;
   status: string | null;
   riskClass: string | null;
+  electricalClass: string | null;
+  appliedPartType: string | null;
   purchaseDate: string | null;
   supplier: string | null;
   notes: string | null;
 };
 
+/** The four columns every row must have. They come first in the template. */
+export const REQUIRED_COLUMNS = ["Asset ID", "Manufacturer", "Model", "Category"] as const;
+
 export const TEMPLATE_COLUMNS = [
   "Asset ID",
-  "Name",
   "Manufacturer",
   "Model",
   "Category",
+  "Name",
   "Serial number",
   "Inventory number",
   "Location",
   "Status",
   "Risk class",
+  "Electrical class",
+  "Applied part type",
   "Purchase date",
   "Supplier",
   "Notes",
@@ -58,6 +65,8 @@ const ALIASES: Record<Field, string[]> = {
   location: ["location", "room", "locationdescription"],
   status: ["status", "assetstatus"],
   riskClass: ["riskclass", "risk", "risklevel"],
+  electricalClass: ["electricalclass", "protectionclass", "deviceclass", "class", "electricalprotectionclass"],
+  appliedPartType: ["appliedparttype", "appliedpart", "parttype", "typebbfcf", "bfcf"],
   purchaseDate: ["purchasedate", "dateofpurchase", "purchased"],
   supplier: ["supplier", "vendor", "purchasedfrom"],
   notes: ["notes", "note", "comments", "comment", "description", "remarks"],
@@ -230,6 +239,8 @@ export function buildRows(table: string[][]): ParsedImport {
       location: get("location") || null,
       status: get("status") || null,
       riskClass: get("riskClass") || null,
+      electricalClass: get("electricalClass") || null,
+      appliedPartType: get("appliedPartType") || null,
       purchaseDate: get("purchaseDate") ? normaliseDate(get("purchaseDate")) : null,
       supplier: get("supplier") || null,
       notes: get("notes") || null,
@@ -262,43 +273,56 @@ export async function parseImportFile(fileName: string, bytes: Uint8Array): Prom
 export async function buildTemplate(): Promise<Buffer> {
   const book = new ExcelJS.Workbook();
   const sheet = book.addWorksheet("Assets");
-  sheet.addRow([...TEMPLATE_COLUMNS]);
+  // Required columns are marked with a star and a strong colour; the star is ignored when the file is read.
+  sheet.addRow(TEMPLATE_COLUMNS.map((c) => ((REQUIRED_COLUMNS as readonly string[]).includes(c) ? `${c} *` : c)));
   sheet.addRow([
     "INF-0001",
-    "Infusion pump",
     "BD",
     "Alaris 8000",
     "Infusion Pump",
+    "Infusion pump",
     "SN123456",
     "HOSP-1001",
     "Ward 2",
     "In service",
     "High",
+    "Class I",
+    "CF",
     "2024-03-15",
     "Example Supplier",
     "Example row: delete it before uploading",
   ]);
   sheet.getRow(1).font = { bold: true, name: "Arial" };
-  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9F3EE" } };
+  TEMPLATE_COLUMNS.forEach((c, i) => {
+    const required = (REQUIRED_COLUMNS as readonly string[]).includes(c);
+    sheet.getRow(1).getCell(i + 1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: required ? "FFFFD966" : "FFE7ECF1" },
+    };
+  });
   sheet.columns.forEach((c) => (c.width = 20));
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   const guide = book.addWorksheet("How to fill in");
   for (const line of [
     ["Column", "Required?", "What to write"],
+    ["Only the four yellow columns marked * are required. Everything else is optional and can be left empty.", "", ""],
     [
       "Asset ID",
       "Yes",
       "Your own ID for the device (capital letters, digits, dots, slashes or hyphens). Kept exactly as written.",
     ],
-    ["Name", "No", "What you call the device. If blank, the Category is used."],
     ["Manufacturer", "Yes", "Created automatically if it is not in the catalog yet."],
     ["Model", "Yes", "Created automatically if it is not in the catalog yet."],
     ["Category", "Yes", "Type of equipment, for example Infusion Pump. Created automatically if new."],
+    ["Name", "No", "What you call the device. If blank, the Category is used."],
     ["Serial number", "No", "A repeated serial number on the same model is flagged for you to check."],
     ["Inventory number", "No", "The hospital's own number. Must be different for every asset in a hospital."],
     ["Location", "No", "Room or area inside the department you choose. Created automatically if new."],
     ["Status", "No", "In service, Under repair, or Out of service. Blank means In service."],
     ["Risk class", "No", "High, Medium or Low."],
+    ["Electrical class", "No", "Class I, Class II, Class III or Internally powered. Used for electrical safety tests."],
+    ["Applied part type", "No", "Type B, BF or CF, or None if the device has no applied part."],
     ["Purchase date", "No", "YYYY-MM-DD or DD/MM/YYYY."],
     ["Supplier", "No", "Where it was bought."],
     ["Notes", "No", "Anything useful. Never put patient information here."],

@@ -8,7 +8,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { ImportFlow } from "./import-flow";
 
-export const metadata: Metadata = { title: "Upload equipment" };
+export const metadata: Metadata = { title: "Upload assets" };
 
 export default async function ImportAssetsPage() {
   const ctx = await requireAccess();
@@ -18,7 +18,7 @@ export default async function ImportAssetsPage() {
   return (
     <>
       <PageHeader
-        title="Upload equipment"
+        title="Upload assets"
         description="Add many assets at once from an Excel (.xlsx) or CSV file. You see a preview first and nothing is saved until you confirm."
         actions={
           <Link
@@ -38,8 +38,8 @@ export default async function ImportAssetsPage() {
             <a href="/assets/import/template" className="font-semibold text-teal-700 underline">
               blank template
             </a>{" "}
-            and fill it in, or use a spreadsheet exported from your old system. Only the Asset ID, Manufacturer, Model
-            and Category columns are needed.
+            and fill it in, or use a spreadsheet exported from your old system. Only the four yellow columns marked *
+            (Asset ID, Manufacturer, Model and Category) are required. All other columns are optional.
           </li>
           <li>Choose the hospital and department these assets belong to, then choose the file.</li>
           <li>Check the preview. Missing manufacturers, models, categories and rooms are created for you.</li>

@@ -88,6 +88,26 @@ enum RiskClass {
   @@map("risk_class")
 }
 
+/// Electrical protection class of a device (IEC 60601). NULL means not recorded yet.
+enum ElectricalClass {
+  CLASS_I
+  CLASS_II
+  CLASS_III
+  INTERNALLY_POWERED
+
+  @@map("electrical_class")
+}
+
+/// Applied part type (B, BF, CF). NONE means the device has no applied part. NULL means not recorded yet.
+enum AppliedPartType {
+  NONE
+  TYPE_B
+  TYPE_BF
+  TYPE_CF
+
+  @@map("applied_part_type")
+}
+
 enum WarrantyKind {
   WARRANTY
   SERVICE_CONTRACT
@@ -591,6 +611,8 @@ model Asset {
   supplierId        String?            @map("supplier_id") @db.Uuid
   status            AssetStatus        @default(IN_SERVICE)
   riskClass         RiskClass?         @map("risk_class")
+  electricalClass   ElectricalClass?   @map("electrical_class")
+  appliedPartType   AppliedPartType?   @map("applied_part_type")
   purchaseDate      DateTime?          @map("purchase_date") @db.Date
   commissionedAt    DateTime?          @map("commissioned_at") @db.Date
   purchaseCost      Decimal?           @map("purchase_cost") @db.Decimal(14, 2)

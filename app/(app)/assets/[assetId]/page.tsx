@@ -1,3 +1,4 @@
+import { APPLIED_PART_LABELS, ELECTRICAL_CLASS_LABELS } from "@/lib/validation/assets";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -175,6 +176,12 @@ export default async function AssetDetailPage({
             <Item label="Hospital inventory number">{asset.inventoryNumber ?? "—"}</Item>
             <Item label="Risk category">
               <RiskBadge risk={asset.riskClass} />
+            </Item>
+            <Item label="Electrical class">
+              {asset.electricalClass ? ELECTRICAL_CLASS_LABELS[asset.electricalClass] : "Not recorded"}
+            </Item>
+            <Item label="Applied part type">
+              {asset.appliedPartType ? APPLIED_PART_LABELS[asset.appliedPartType] : "Not recorded"}
             </Item>
             <Item label="Hospital">{asset.hospital.name}</Item>
             <Item label="Responsible department">{asset.department.name}</Item>

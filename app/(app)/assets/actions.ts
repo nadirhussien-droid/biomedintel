@@ -43,6 +43,8 @@ const ASSET_FIELDS = [
   "description",
   "status",
   "riskClass",
+  "electricalClass",
+  "appliedPartType",
   "purchaseDate",
   "commissionedAt",
   "eolDate",
