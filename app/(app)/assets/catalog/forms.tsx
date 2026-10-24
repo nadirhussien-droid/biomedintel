@@ -106,7 +106,6 @@ export function ModelForm({
         name="expectedLifeYears"
         id="mo-life"
         inputMode="numeric"
-        hint="From the manufacturer, if known."
         error={err(state, "expectedLifeYears")}
       />
       <Button type="submit" variant="secondary" disabled={pending || !manufacturers.length || !categories.length}>
