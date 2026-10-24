@@ -99,7 +99,7 @@ export default async function CostReportPage({ searchParams }: { searchParams: S
             ],
             [
               "Maintenance cost by asset",
-              "Parts cost + external service cost. In-house labour is NOT included: no labour rates are recorded.",
+              "Parts cost + external service cost. In-house labour is NOT included here: see Department spend for labour hours and labour cost.",
             ],
             [
               "Currencies",

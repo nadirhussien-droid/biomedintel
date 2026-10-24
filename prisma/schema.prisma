@@ -357,6 +357,7 @@ model Organization {
   workOrderCorrections WorkOrderCorrection[]
   testEquipment        TestEquipment[]
   calibrationRecords   CalibrationRecord[]
+  labourRates          LabourRate[]
   calibrationCertificates CalibrationCertificate[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
@@ -2639,4 +2640,23 @@ model CalibrationCertificate {
 
   @@unique([organizationId, recordId])
   @@map("calibration_certificates")
+}
+
+/// Hourly labour rate of one person from a start date (append-only: a new rate with a later
+/// start date replaces it for later work). Used only by the cost reports.
+model LabourRate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  userId        String   @map("user_id")
+  hourlyRate    Decimal  @map("hourly_rate") @db.Decimal(10, 2)
+  currency      String   @db.Char(3)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  note          String?
+  createdById   String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, userId, effectiveFrom])
+  @@map("labour_rates")
 }
