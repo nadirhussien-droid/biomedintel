@@ -871,8 +871,8 @@ model WorkOrderTask {
   @@map("work_order_tasks")
 }
 
-/// One correction to a completed job (diagnosis, work done or fault category).
-/// Append-only: the old value is kept here, the job shows the corrected value.
+/// One edit to a completed job (diagnosis, work done or fault category).
+/// Append-only: the old value is kept here (not shown on the job).
 model WorkOrderCorrection {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
@@ -880,7 +880,7 @@ model WorkOrderCorrection {
   field          String // DIAGNOSIS, RESOLUTION, FAILURE_CATEGORY
   oldValue       String?  @map("old_value")
   newValue       String?  @map("new_value")
-  reason         String
+  reason         String?
   correctedById  String   @map("corrected_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

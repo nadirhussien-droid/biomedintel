@@ -1,13 +1,13 @@
--- BiomedIntel.ai: correct mistakes on a completed job without losing history (hand-written migration)
+-- BiomedIntel.ai: edit a completed job without losing the earlier values (hand-written migration)
 --
 -- What this migration does, in plain words:
---   1. Adds work_order_corrections: one row for every correction to the
---      diagnosis, the work done text or the fault category of a completed job.
---      It keeps the old value, the new value, who changed it and why.
---      Rows are never changed or deleted.
+--   1. Adds work_order_corrections: one row for every edit to the diagnosis,
+--      the work done text or the fault category of a completed job. It keeps
+--      the old value, the new value, who changed it and an optional note.
+--      Rows are never changed or deleted. They are not shown on the job.
 --   2. Adds three optional columns to work_order_tasks so a work log line can be
---      corrected the same way: a correction is a new line that points at the
---      line it replaces. The original line stays in the database.
+--      edited the same way: the edit is a new line that points at the line it
+--      replaces. The original line stays in the database.
 --   3. Row-level security: an organisation sees and adds only its own rows.
 --      The table owner may read all rows (backups on a managed host).
 --   4. Safety test results, the outcome and the declaration are not covered by
@@ -22,7 +22,7 @@ CREATE TABLE "work_order_corrections" (
     "field" TEXT NOT NULL,
     "old_value" TEXT,
     "new_value" TEXT,
-    "reason" TEXT NOT NULL,
+    "reason" TEXT,
     "corrected_by" TEXT NOT NULL,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -40,7 +40,7 @@ ALTER TABLE "work_order_corrections" ADD CONSTRAINT "work_order_corrections_work
 ALTER TABLE "work_order_corrections" ADD CONSTRAINT "work_order_corrections_field"
   CHECK ("field" IN ('DIAGNOSIS', 'RESOLUTION', 'FAILURE_CATEGORY'));
 ALTER TABLE "work_order_corrections" ADD CONSTRAINT "work_order_corrections_reason_length"
-  CHECK (char_length("reason") BETWEEN 5 AND 500);
+  CHECK ("reason" IS NULL OR char_length("reason") BETWEEN 1 AND 500);
 ALTER TABLE "work_order_corrections" ADD CONSTRAINT "work_order_corrections_changed"
   CHECK ("old_value" IS DISTINCT FROM "new_value");
 
@@ -65,11 +65,11 @@ ALTER TABLE "work_order_tasks" ADD COLUMN "correction_reason" TEXT;
 
 ALTER TABLE "work_order_tasks" ADD CONSTRAINT "work_order_tasks_corrects_task_id_fkey"
   FOREIGN KEY ("corrects_task_id") REFERENCES "work_order_tasks"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
--- A correction names the line it replaces, who corrected it and why, all together or not at all.
+-- An edit names the line it replaces and who edited it, together or not at all; the note is optional.
 ALTER TABLE "work_order_tasks" ADD CONSTRAINT "work_order_tasks_correction_complete"
-  CHECK (("corrects_task_id" IS NULL AND "corrected_by" IS NULL AND "correction_reason" IS NULL)
-      OR ("corrects_task_id" IS NOT NULL AND "corrected_by" IS NOT NULL
-          AND char_length("correction_reason") BETWEEN 5 AND 500));
+  CHECK ((("corrects_task_id" IS NULL) = ("corrected_by" IS NULL))
+     AND ("correction_reason" IS NULL OR ("corrects_task_id" IS NOT NULL
+          AND char_length("correction_reason") BETWEEN 1 AND 500)));
 -- A line can be replaced only once (the replacement can itself be replaced).
 CREATE UNIQUE INDEX "work_order_tasks_one_correction_per_line"
   ON "work_order_tasks"("corrects_task_id") WHERE "corrects_task_id" IS NOT NULL;

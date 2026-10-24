@@ -13,8 +13,7 @@ import {
   assignWorkOrder,
   cancelWorkOrder,
   completeWorkOrder,
-  correctWorkLine,
-  correctWorkOrder,
+  editCompletedJob,
   holdWorkOrder,
   logWork,
   reopenWorkOrder,
@@ -202,38 +201,29 @@ export async function reopenAction(prev: WoFormState | null, form: FormData) {
   );
 }
 
-/** Correct the text of a completed job (diagnosis, work done, fault category). */
-export async function correctAction(prev: WoFormState | null, form: FormData) {
+/** Edit a completed job: text, fault category and work log lines (one Edit button). */
+export async function editCompletedAction(prev: WoFormState | null, form: FormData) {
   const ctx = await requireAccess();
+  const lines = form
+    .getAll("lineId")
+    .filter((v): v is string => typeof v === "string")
+    .map((taskId) => ({
+      taskId,
+      description: str(form, `line-${taskId}-description`),
+      minutes: str(form, `line-${taskId}-minutes`),
+    }));
   return runThenShow(
     () =>
-      correctWorkOrder(ctx, {
+      editCompletedJob(ctx, {
         id: str(form, "id"),
         diagnosis: str(form, "diagnosis"),
         resolution: str(form, "resolution"),
         failureCategory: str(form, "failureCategory"),
+        lines,
         reason: str(form, "reason"),
       }),
     str(form, "id"),
-    "corrected",
-    prev,
-  );
-}
-
-/** Correct one line of the work log of a completed job. */
-export async function correctLineAction(prev: WoFormState | null, form: FormData) {
-  const ctx = await requireAccess();
-  return runThenShow(
-    () =>
-      correctWorkLine(ctx, {
-        id: str(form, "id"),
-        taskId: str(form, "taskId"),
-        description: str(form, "description"),
-        minutes: str(form, "minutes"),
-        reason: str(form, "reason"),
-      }),
-    str(form, "id"),
-    "line-corrected",
+    "edited",
     prev,
   );
 }

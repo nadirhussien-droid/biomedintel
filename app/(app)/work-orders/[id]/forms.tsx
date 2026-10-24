@@ -21,8 +21,7 @@ import {
   assignAction,
   cancelAction,
   completeAction,
-  correctAction,
-  correctLineAction,
+  editCompletedAction,
   holdAction,
   logWorkAction,
   noteAction,
@@ -474,14 +473,15 @@ export function ReopenForm({ id }: { id: string }) {
   );
 }
 
-/** Correct the text of a completed job. The old text is kept in the correction history. */
-export function CorrectJobForm({
+/** One Edit button on a completed job; opens a form with everything that can be fixed. */
+export function EditCompletedJob({
   id,
   planned,
   isRepair,
   diagnosis,
   resolution,
   failureCategory,
+  lines,
 }: {
   id: string;
   planned: boolean;
@@ -489,118 +489,122 @@ export function CorrectJobForm({
   diagnosis: string;
   resolution: string;
   failureCategory: string | null;
+  lines: { id: string; description: string; minutes: number }[];
 }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <div>
+        <Button type="button" variant="secondary" onClick={() => setOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" className="mr-1.5">
+            <path
+              d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Edit
+        </Button>
+      </div>
+    );
+  }
   return (
-    <ActionForm action={correctAction} id={id} label="Save correction">
-      {(state) => (
-        <>
-          <FieldShell
-            label={planned ? "Notes" : "Diagnosis — what was wrong"}
-            name="diagnosis"
-            error={err(state, "diagnosis")}
-          >
-            <textarea
-              id="corr-diagnosis"
+    <div className="border-line rounded-md border p-4">
+      <ActionForm action={editCompletedAction} id={id} label="Save changes">
+        {(state) => (
+          <>
+            <FieldShell
+              label={planned ? "Notes" : "Diagnosis — what was wrong"}
               name="diagnosis"
-              required
-              maxLength={2000}
-              defaultValue={diagnosis}
-              className={textarea}
-            />
-          </FieldShell>
-          <FieldShell
-            label={planned ? "Work done and findings" : "Work done and result"}
-            name="resolution"
-            error={err(state, "resolution")}
-          >
-            <textarea
-              id="corr-resolution"
-              name="resolution"
-              required
-              maxLength={2000}
-              defaultValue={resolution}
-              className={textarea}
-            />
-          </FieldShell>
-          {isRepair ? (
-            <SelectField
-              label="Fault category"
-              name="failureCategory"
-              id="corr-category"
-              defaultValue={failureCategory ?? ""}
-              error={err(state, "failureCategory")}
+              error={err(state, "diagnosis")}
             >
-              <option value="">Not recorded</option>
-              {FAILURE_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {FAILURE_CATEGORY_LABELS[c]}
-                </option>
-              ))}
-            </SelectField>
-          ) : null}
-          <InputField
-            label="Why are you correcting this?"
-            name="reason"
-            id="corr-reason"
-            required
-            maxLength={500}
-            hint="Required. The old text is kept in the correction history. Safety test results cannot be changed here; ask a manager to reopen the job."
-            error={err(state, "reason")}
-          />
-        </>
-      )}
-    </ActionForm>
-  );
-}
-
-/** Correct one line of the work log of a completed job. */
-export function CorrectLineForm({
-  id,
-  taskId,
-  description,
-  minutes,
-}: {
-  id: string;
-  taskId: string;
-  description: string;
-  minutes: number;
-}) {
-  return (
-    <ActionForm action={correctLineAction} id={id} label="Save correction" variant="secondary">
-      {(state) => (
-        <>
-          <input type="hidden" name="taskId" value={taskId} />
-          <InputField
-            label="Work done"
-            name="description"
-            id={`line-desc-${taskId}`}
-            required
-            maxLength={1000}
-            defaultValue={description}
-            error={err(state, "description")}
-          />
-          <InputField
-            label="Minutes"
-            name="minutes"
-            id={`line-min-${taskId}`}
-            type="number"
-            min={1}
-            max={1440}
-            required
-            defaultValue={minutes}
-            error={err(state, "minutes")}
-          />
-          <InputField
-            label="Why are you correcting this?"
-            name="reason"
-            id={`line-reason-${taskId}`}
-            required
-            maxLength={500}
-            error={err(state, "reason")}
-          />
-        </>
-      )}
-    </ActionForm>
+              <textarea
+                id="edit-diagnosis"
+                name="diagnosis"
+                required
+                maxLength={2000}
+                defaultValue={diagnosis}
+                className={textarea}
+              />
+            </FieldShell>
+            <FieldShell
+              label={planned ? "Work done and findings" : "Work done and result"}
+              name="resolution"
+              error={err(state, "resolution")}
+            >
+              <textarea
+                id="edit-resolution"
+                name="resolution"
+                required
+                maxLength={2000}
+                defaultValue={resolution}
+                className={textarea}
+              />
+            </FieldShell>
+            {isRepair ? (
+              <SelectField
+                label="Fault category"
+                name="failureCategory"
+                id="edit-category"
+                defaultValue={failureCategory ?? ""}
+                error={err(state, "failureCategory")}
+              >
+                <option value="">Not recorded</option>
+                {FAILURE_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {FAILURE_CATEGORY_LABELS[c]}
+                  </option>
+                ))}
+              </SelectField>
+            ) : null}
+            {lines.length ? (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="mb-1 text-sm font-semibold">Work log</legend>
+                {lines.map((l) => (
+                  <div key={l.id} className="grid gap-2 sm:grid-cols-[1fr_7rem]">
+                    <input type="hidden" name="lineId" value={l.id} />
+                    <InputField
+                      label="Work done"
+                      name={`line-${l.id}-description`}
+                      id={`edit-line-${l.id}`}
+                      required
+                      maxLength={1000}
+                      defaultValue={l.description}
+                    />
+                    <InputField
+                      label="Minutes"
+                      name={`line-${l.id}-minutes`}
+                      id={`edit-min-${l.id}`}
+                      type="number"
+                      min={1}
+                      max={1440}
+                      required
+                      defaultValue={l.minutes}
+                    />
+                  </div>
+                ))}
+              </fieldset>
+            ) : null}
+            <InputField
+              label="Note (optional)"
+              name="reason"
+              id="edit-reason"
+              maxLength={500}
+              hint="Not shown on the job. Safety test results and the outcome cannot be edited; ask a manager to reopen the job."
+              error={err(state, "reason")}
+            />
+          </>
+        )}
+      </ActionForm>
+      <div className="mt-2">
+        <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

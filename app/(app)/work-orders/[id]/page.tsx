@@ -34,8 +34,7 @@ import {
   AssignForm,
   CancelForm,
   CompleteForm,
-  CorrectJobForm,
-  CorrectLineForm,
+  EditCompletedJob,
   HoldForm,
   LogWorkForm,
   NoteForm,
@@ -68,8 +67,6 @@ const EVENT_LABELS: Record<string, string> = {
   COMPLETED: "Signed off by technician",
   REVIEWED: "Reviewed by manager",
   REOPENED: "Reopened",
-  CORRECTED: "Job corrected",
-  WORK_LOG_CORRECTED: "Work log line corrected",
   CANCELLED: "Cancelled",
   PARTS_RESERVED: "Parts reserved",
   PARTS_RELEASED: "Reservation released",
@@ -93,8 +90,7 @@ const SAVED: Record<string, string> = {
   "signed-off": "Job signed off. The reporter has been notified.",
   reviewed: "Marked as reviewed.",
   reopened: "Job reopened. The technician has been notified.",
-  corrected: "Correction saved. The old text is kept in the correction history.",
-  "line-corrected": "Work log line corrected. The earlier version is kept in the job history.",
+  edited: "Changes saved.",
   cancelled: "Job cancelled. The device status was not changed: confirm separately that it is safe to use.",
 };
 
@@ -457,58 +453,16 @@ export default async function WorkOrderPage({
             </h3>
             <p className="mt-1 text-sm whitespace-pre-line">{wo.resolution}</p>
           </div>
-          {a.correct ? (
-            <details className="border-line rounded-md border p-3">
-              <summary className="cursor-pointer text-sm font-semibold">Correct a mistake in this job</summary>
-              <div className="mt-3 flex max-w-2xl flex-col gap-2">
-                <p className="text-ink-muted text-xs">
-                  You can correct the text below and the work log. Every change needs a reason and the old text is kept.
-                  Safety test results, the outcome and the declaration cannot be changed here; ask a manager to reopen
-                  the job if those are wrong.
-                </p>
-                <CorrectJobForm
-                  id={wo.id}
-                  planned={wo.planned}
-                  isRepair={wo.type === "CORRECTIVE"}
-                  diagnosis={wo.diagnosis ?? ""}
-                  resolution={wo.resolution ?? ""}
-                  failureCategory={wo.failureCategory}
-                />
-              </div>
-            </details>
-          ) : null}
-          {wo.corrections.length ? (
-            <div>
-              <h3 className="text-ink-muted text-xs font-semibold tracking-wide uppercase">Correction history</h3>
-              <ul className="mt-1 flex flex-col gap-2 text-sm">
-                {wo.corrections.map((c) => (
-                  <li key={c.id} className="border-line border-l-2 pl-3">
-                    <span className="font-medium">
-                      {c.field === "DIAGNOSIS"
-                        ? wo.planned
-                          ? "Notes"
-                          : "Diagnosis"
-                        : c.field === "RESOLUTION"
-                          ? wo.planned
-                            ? "Work done and findings"
-                            : "Work done and result"
-                          : "Fault category"}
-                    </span>{" "}
-                    <span className="text-ink-muted">
-                      corrected by {person(c.correctedById)} · {dateTime.format(c.createdAt)} UTC · reason: {c.reason}
-                    </span>
-                    <div className="text-ink-muted text-xs whitespace-pre-line">
-                      Before:{" "}
-                      {c.field === "FAILURE_CATEGORY"
-                        ? c.oldValue
-                          ? FAILURE_CATEGORY_LABELS[c.oldValue as keyof typeof FAILURE_CATEGORY_LABELS]
-                          : "Not classified"
-                        : (c.oldValue ?? "—")}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {a.editCompleted ? (
+            <EditCompletedJob
+              id={wo.id}
+              planned={wo.planned}
+              isRepair={wo.type === "CORRECTIVE"}
+              diagnosis={wo.diagnosis ?? ""}
+              resolution={wo.resolution ?? ""}
+              failureCategory={wo.failureCategory}
+              lines={wo.tasks.map((t) => ({ id: t.id, description: t.description, minutes: t.minutes }))}
+            />
           ) : null}
           <div className="grid gap-6 lg:grid-cols-2">
             {a.review ? <ReviewForm id={wo.id} /> : null}
@@ -550,20 +504,6 @@ export default async function WorkOrderPage({
                   <span className="text-ink-muted">
                     · {t.minutes} min · {person(t.performedById)} · {dateTime.format(t.createdAt)} UTC
                   </span>
-                  {t.corrected ? (
-                    <div className="text-ink-muted text-xs">
-                      Corrected by {person(t.corrected.byId)}: {t.corrected.reason}. Before:{" "}
-                      {t.corrected.before.map((b) => `${b.description} (${b.minutes} min)`).join(" → ")}
-                    </div>
-                  ) : null}
-                  {a.correct ? (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-xs font-semibold">Correct this line</summary>
-                      <div className="mt-2 flex max-w-md flex-col gap-2">
-                        <CorrectLineForm id={wo.id} taskId={t.id} description={t.description} minutes={t.minutes} />
-                      </div>
-                    </details>
-                  ) : null}
                 </li>
               ))}
             </ul>
