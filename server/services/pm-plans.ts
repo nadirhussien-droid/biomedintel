@@ -139,6 +139,26 @@ async function checkTarget(ctx: AccessContext, tx: Tx, d: PlanInput, opts: { app
     if (!model) throw new ValidationError("Choose an active model.", { targetId: ["Unknown model"] });
     return { modelIds: [model.id], label: model.modelName };
   }
+  if (d.targetKind === "DEPARTMENT") {
+    // The schema guarantees a hospital for a department plan; the department must belong to it
+    // and, for a writer, be inside the writer's scope.
+    const dept = await tx.department.findFirst({
+      where: { id: d.targetId, hospitalId: d.hospitalId!, status: "ACTIVE" },
+      select: { id: true, name: true, hospitalId: true },
+    });
+    if (!dept) {
+      throw new ValidationError("Choose an active department of this hospital.", {
+        targetId: ["Unknown department for this hospital"],
+      });
+    }
+    if (!opts.approval) await requireHospitalAccess(ctx, dept.hospitalId, dept.id);
+    const inDept = await tx.asset.findMany({
+      where: { departmentId: dept.id, archivedAt: null, status: { not: "DECOMMISSIONED" } },
+      select: { modelId: true },
+      distinct: ["modelId"],
+    });
+    return { modelIds: inDept.map((a) => a.modelId), label: dept.name };
+  }
   const cat = await tx.equipmentCategory.findFirst({
     where: { id: d.targetId, status: "ACTIVE" },
     select: { id: true, name: true, models: { where: { status: "ACTIVE" }, select: { id: true } } },
@@ -211,6 +231,7 @@ const planData = (d: PlanInput) => ({
   assetId: d.targetKind === "ASSET" ? d.targetId : null,
   modelId: d.targetKind === "MODEL" ? d.targetId : null,
   categoryId: d.targetKind === "CATEGORY" ? d.targetId : null,
+  departmentId: d.targetKind === "DEPARTMENT" ? d.targetId : null,
   intervalCount: d.intervalCount,
   intervalUnit: d.intervalUnit,
   intervalSource: d.intervalSource,
@@ -292,6 +313,7 @@ export async function updatePlan(ctx: AccessContext, id: string, input: unknown)
         next.assetId !== plan.assetId ||
         next.modelId !== plan.modelId ||
         next.categoryId !== plan.categoryId ||
+        next.departmentId !== plan.departmentId ||
         next.workType !== plan.workType;
       if (targetChanged) {
         throw new ValidationError("An approved plan keeps its type and target. Create a new plan instead.", {
@@ -339,7 +361,7 @@ export async function approvePlan(ctx: AccessContext, input: unknown) {
     // Re-check the stored working copy against today's catalogue and standards.
     const d = parseInput(planSchema, {
       ...plan,
-      targetId: plan.assetId ?? plan.modelId ?? plan.categoryId,
+      targetId: plan.assetId ?? plan.modelId ?? plan.categoryId ?? plan.departmentId,
       startsOn: fromDbDate(plan.startsOn),
       endsOn: plan.endsOn ? fromDbDate(plan.endsOn) : null,
       checklist: plan.checklist,
@@ -562,7 +584,9 @@ function eligibleWhere(ctx: AccessContext, plan: PlanRow): Prisma.AssetWhereInpu
       ? { id: plan.assetId! }
       : plan.targetKind === "MODEL"
         ? { modelId: plan.modelId! }
-        : { model: { categoryId: plan.categoryId! } };
+        : plan.targetKind === "DEPARTMENT"
+          ? { departmentId: plan.departmentId! }
+          : { model: { categoryId: plan.categoryId! } };
   return {
     AND: [
       target,
@@ -684,6 +708,7 @@ const targetSelect = {
     },
   },
   category: { select: { id: true, name: true } },
+  department: { select: { id: true, name: true } },
   hospital: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.MaintenancePlanInclude;
 
@@ -692,9 +717,11 @@ export function targetLabel(p: {
   asset: { assetTag: string; name: string } | null;
   model: { modelName: string; manufacturer: { name: string } } | null;
   category: { name: string } | null;
+  department?: { name: string } | null;
 }) {
   if (p.targetKind === "ASSET" && p.asset) return `${p.asset.assetTag} · ${p.asset.name}`;
   if (p.targetKind === "MODEL" && p.model) return `${p.model.manufacturer.name} ${p.model.modelName}`;
+  if (p.targetKind === "DEPARTMENT" && p.department) return `All assets in ${p.department.name}`;
   if (p.category) return `All ${p.category.name.toLowerCase()} assets`;
   return "—";
 }
@@ -796,7 +823,7 @@ export async function getPlan(ctx: AccessContext, id: string) {
 export async function planFormOptions(ctx: AccessContext) {
   await requirePermission(ctx, "pm.manage", { entityType: "maintenance_plan" });
   return withTenant(tenant(ctx), async (tx) => {
-    const [models, categories, assets, workers] = await Promise.all([
+    const [models, categories, departmentRows, assets, workers] = await Promise.all([
       tx.equipmentModel.findMany({
         where: { status: "ACTIVE" },
         select: {
@@ -813,6 +840,11 @@ export async function planFormOptions(ctx: AccessContext) {
       tx.equipmentCategory.findMany({
         where: { status: "ACTIVE" },
         select: { id: true, name: true, defaultPmIntervalMonths: true },
+        orderBy: { name: "asc" },
+      }),
+      tx.department.findMany({
+        where: { status: "ACTIVE", hospitalId: { in: ctx.hospitals.map((h) => h.id) } },
+        select: { id: true, name: true, hospitalId: true },
         orderBy: { name: "asc" },
       }),
       tx.asset.findMany({
@@ -835,6 +867,12 @@ export async function planFormOptions(ctx: AccessContext) {
       orgWide: ctx.orgWide,
       models,
       categories,
+      // Only departments the user may use: every department of a hospital they cover fully,
+      // or the listed ones for a department-limited user.
+      departments: departmentRows.filter((d) => {
+        const h = ctx.hospitals.find((x) => x.id === d.hospitalId);
+        return h && (h.departments === "ALL" || h.departments.includes(d.id));
+      }),
       assets,
       assignees: workers
         .map((w) => ({ userId: w.userId, name: names[w.userId] ?? "Unknown", role: w.role }))

@@ -188,6 +188,7 @@ enum PlanTargetKind {
   ASSET
   MODEL
   CATEGORY
+  DEPARTMENT
 
   @@map("plan_target_kind")
 }
@@ -434,6 +435,7 @@ model Department {
   assets       Asset[]
   workOrders   WorkOrder[]
   tsSessions   TroubleshootingSession[]
+  plans        MaintenancePlan[]
 
   @@unique([organizationId, hospitalId, code])
   @@unique([organizationId, id])
@@ -949,6 +951,8 @@ model MaintenancePlan {
   assetId              String?               @map("asset_id") @db.Uuid
   modelId              String?               @map("model_id") @db.Uuid
   categoryId           String?               @map("category_id") @db.Uuid
+  /// Plan applies to every asset in this department (requires hospital_id).
+  departmentId         String?               @map("department_id") @db.Uuid
   intervalCount        Int                   @map("interval_count")
   intervalUnit         IntervalUnit          @map("interval_unit")
   intervalSource       IntervalSource        @map("interval_source")
@@ -990,6 +994,7 @@ model MaintenancePlan {
   asset            Asset?                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
   model            EquipmentModel?           @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
   category         EquipmentCategory?        @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  department       Department?               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
   approvedRevision MaintenancePlanRevision?  @relation("PlanApprovedRevision", fields: [organizationId, approvedRevisionId], references: [organizationId, id], onDelete: Restrict)
   revisions        MaintenancePlanRevision[] @relation("PlanRevisions")
   schedules        PmSchedule[]
@@ -999,6 +1004,7 @@ model MaintenancePlan {
   @@unique([organizationId, approvedRevisionId])
   @@index([organizationId, status])
   @@index([organizationId, workType])
+  @@index([organizationId, departmentId])
   @@map("maintenance_plans")
 }
 

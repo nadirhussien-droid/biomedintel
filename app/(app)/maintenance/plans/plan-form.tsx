@@ -38,6 +38,7 @@ export type PlanFormOptions = {
   orgWide: boolean;
   models: Model[];
   categories: { id: string; name: string; defaultPmIntervalMonths: number | null }[];
+  departments: { id: string; name: string; hospitalId: string }[];
   assets: { id: string; assetTag: string; name: string; hospitalId: string }[];
   assignees: { userId: string; name: string; role: string }[];
 };
@@ -266,6 +267,7 @@ export function PlanForm({ options, defaults }: { options: PlanFormOptions; defa
   const editing = Boolean(defaults.id);
   const [state, formAction, pending] = useActionState(editing ? updatePlanAction : createPlanAction, null);
   const { formRef, onSubmit } = useKeepValuesSubmit(formAction, state, { resetOnSuccess: false });
+  const [hospitalId, setHospitalId] = useState(defaults.hospitalId);
   const [targetKind, setTargetKind] = useState(defaults.targetKind);
   const [targetId, setTargetId] = useState(defaults.targetId);
   const [source, setSource] = useState(defaults.intervalSource);
@@ -332,7 +334,12 @@ export function PlanForm({ options, defaults }: { options: PlanFormOptions; defa
         <SelectField
           label="Hospital"
           name="hospitalId"
-          defaultValue={defaults.hospitalId}
+          value={hospitalId}
+          onChange={(e) => {
+            setHospitalId(e.target.value);
+            // A department belongs to one hospital: changing the hospital clears it.
+            if (targetKind === "DEPARTMENT") setTargetId("");
+          }}
           error={err(state, "hospitalId")}
         >
           {options.orgWide ? <option value="">Every hospital in the organisation</option> : null}
@@ -375,6 +382,24 @@ export function PlanForm({ options, defaults }: { options: PlanFormOptions; defa
                 {a.assetTag} · {a.name}
               </option>
             ))}
+          </SelectField>
+        ) : targetKind === "DEPARTMENT" ? (
+          <SelectField
+            label="Department"
+            name="target_DEPARTMENT"
+            value={targetId}
+            disabled={defaults.locked}
+            onChange={(e) => setTargetId(e.target.value)}
+            error={err(state, "targetId")}
+          >
+            <option value="">{hospitalId ? "Choose a department…" : "Choose a hospital first"}</option>
+            {options.departments
+              .filter((d) => d.hospitalId === hospitalId)
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
           </SelectField>
         ) : targetKind === "MODEL" ? (
           <SelectField
@@ -441,6 +466,14 @@ export function PlanForm({ options, defaults }: { options: PlanFormOptions; defa
         ) : model ? (
           <p className="bg-warn-bg rounded-sm px-3 py-2 text-sm text-[#6b3f00]">
             No manufacturer interval is recorded for {model.modelName}. Record it under Settings, or use a requirement.
+          </p>
+        ) : null}
+        {targetKind === "DEPARTMENT" ? (
+          <p className="bg-surface-sunken rounded-sm px-3 py-2 text-sm">
+            A department has different makes, so the interval must come from a <strong>requirement</strong> (for example
+            a regulation or hospital policy), not from one manufacturer. An organisation-defined interval is accepted
+            only if none of the department&apos;s equipment has manufacturer guidance on record. Assets are added to the
+            plan from the plan page after it is approved.
           </p>
         ) : null}
         {category?.defaultPmIntervalMonths ? (

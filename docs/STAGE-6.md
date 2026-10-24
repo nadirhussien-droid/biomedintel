@@ -44,7 +44,8 @@ Everything shown in the seed is **fictional demonstration data**. That includes 
 2. **What it applies to:**
    - **one asset**;
    - **every asset of one model** (recommended: one manufacturer, one procedure);
-   - **every asset in a category** — only for intervals that come from a requirement, because a category mixes makes.
+   - **every asset in a category** — only for intervals that come from a requirement, because a category mixes makes;
+   - **every asset in one department** (added 24 Oct 2026, see `docs/PM-DEPARTMENT-PLANS.md`) — same interval rule as a category, because a department mixes makes.
 3. **Interval:** weekly, monthly, quarterly, semiannual, annual, or custom (days, weeks or months). Also say **where it comes from**:
    - _Regulatory_ or _Organisational requirement_: name the document and clause.
    - _Manufacturer_: the interval must match the one recorded for the model under Settings.

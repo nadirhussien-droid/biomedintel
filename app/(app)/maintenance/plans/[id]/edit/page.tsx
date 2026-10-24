@@ -35,7 +35,7 @@ export default async function EditPlanPage({ params }: { params: Promise<{ id: s
             hospitalId: plan.hospitalId ?? "",
             workType: plan.workType,
             targetKind: plan.targetKind,
-            targetId: plan.assetId ?? plan.modelId ?? plan.categoryId ?? "",
+            targetId: plan.assetId ?? plan.modelId ?? plan.categoryId ?? plan.departmentId ?? "",
             intervalCount: plan.intervalCount,
             intervalUnit: plan.intervalUnit,
             intervalSource: plan.intervalSource,
