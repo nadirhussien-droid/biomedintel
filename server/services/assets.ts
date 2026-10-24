@@ -12,6 +12,8 @@
 // sorting and paging all happen inside the database query AFTER the scope
 // filter is applied, so no combination of query-string values can widen it.
 import type { Prisma } from "../db/generated/client";
+import { tableCsv, type ExportDoc, type ExportFormat } from "../export/document";
+import { renderExport } from "../export/render";
 import { withTenant, type Tx } from "../db/tenant";
 import { audit, auditStandalone } from "../audit/audit";
 import { can, requireHospitalAccess, requirePermission, type AccessContext } from "../authz/access";
@@ -928,64 +930,116 @@ export async function getAssetsForLabels(ctx: AccessContext, ids: string[]) {
 
 export const MAX_EXPORT_ROWS = 5000;
 
-/** CSV export of the register with the same scope and filters as the screen. */
-export async function exportAssetsCsv(ctx: AccessContext, rawQuery: unknown): Promise<{ csv: string; count: number }> {
+const ASSET_EXPORT_COLUMNS = [
+  "Asset ID",
+  "Name",
+  "Manufacturer",
+  "Model",
+  "Category",
+  "Serial number",
+  "Inventory number",
+  "Hospital",
+  "Department",
+  "Location",
+  "Status",
+  "Risk",
+  "Archived",
+];
+
+/**
+ * Export of the register (CSV, Excel or PDF) with the same scope and filters as
+ * the screen, so it can never include assets the user could not see there.
+ * At most MAX_EXPORT_ROWS rows. Audited with the format.
+ */
+export async function exportAssets(ctx: AccessContext, rawQuery: unknown, format: ExportFormat) {
   await requirePermission(ctx, "asset.export", { entityType: "asset" });
   const q = assetQuerySchema.parse(rawQuery ?? {});
   const where = buildAssetWhere(ctx, q);
-  return withTenant(tenant(ctx), async (tx) => {
-    const rows = await tx.asset.findMany({ where, orderBy: orderBy(q), take: MAX_EXPORT_ROWS, select: LIST_SELECT });
-    const header = [
-      "Asset ID",
-      "Name",
-      "Manufacturer",
-      "Model",
-      "Category",
-      "Serial number",
-      "Inventory number",
-      "Hospital",
-      "Department",
-      "Location",
-      "Status",
-      "Risk",
-      "Archived",
-    ];
-    const lines = [
-      header,
-      ...rows.map((r) => [
-        r.assetTag,
-        r.name,
-        r.model.manufacturer.name,
-        r.model.modelName,
-        r.model.category.name,
-        r.serialNumber ?? "",
-        r.inventoryNumber ?? "",
-        r.hospital.name,
-        r.department.name,
-        r.location?.name ?? "",
-        r.status,
-        r.riskClass ?? "",
-        r.archivedAt ? "yes" : "no",
-      ]),
-    ].map((cells) => cells.map(csvCell).join(","));
-    await audit(tx, {
+  const { rows, filters } = await withTenant(tenant(ctx), async (tx) => {
+    const found = await tx.asset.findMany({ where, orderBy: orderBy(q), take: MAX_EXPORT_ROWS, select: LIST_SELECT });
+    const filters = await describeAssetFilters(tx, ctx, q);
+    const rows = found.map((r) => [
+      r.assetTag,
+      r.name,
+      r.model.manufacturer.name,
+      r.model.modelName,
+      r.model.category.name,
+      r.serialNumber ?? "",
+      r.inventoryNumber ?? "",
+      r.hospital.name,
+      r.department.name,
+      r.location?.name ?? "",
+      r.status,
+      r.riskClass ?? "",
+      r.archivedAt ? "yes" : "no",
+    ]);
+    return { rows, filters };
+  });
+  const generatedAt = new Date().toISOString();
+  const doc: ExportDoc = {
+    title: "Equipment asset register",
+    organization: ctx.organization.name,
+    meta: [
+      ["Generated (UTC)", generatedAt],
+      [
+        "Assets",
+        `${rows.length}${rows.length === MAX_EXPORT_ROWS ? ` (limit ${MAX_EXPORT_ROWS}; narrow the filters for more)` : ""}`,
+      ],
+      ["Filters", filters],
+    ],
+    sections: [{ columns: ASSET_EXPORT_COLUMNS, rows }],
+  };
+  const file = await renderExport(ctx, doc, format, { csv: () => `${tableCsv(ASSET_EXPORT_COLUMNS, rows)}\r\n` });
+  await withTenant(tenant(ctx), (tx) =>
+    audit(tx, {
       organizationId: ctx.organization.id,
       actorUserId: ctx.user.id,
       action: "asset.exported",
       entityType: "asset",
-      metadata: { count: rows.length, filters: { ...q, page: undefined } },
+      metadata: { count: rows.length, format, filters: { ...q, page: undefined } },
       request: ctx.request,
-    });
-    return { csv: `${lines.join("\r\n")}\r\n`, count: rows.length };
-  });
+    }),
+  );
+  return { ...file, count: rows.length };
 }
 
-/** Quotes a CSV cell and neutralises spreadsheet formulas (CSV injection). */
-export function csvCell(value: string): string {
-  let v = value;
-  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`;
-  return `"${v.replace(/"/g, '""')}"`;
+/** Plain-English summary of the register filters, for the top of an exported file (names, never ids). */
+async function describeAssetFilters(tx: Tx, ctx: AccessContext, q: AssetQuery): Promise<string> {
+  const parts: string[] = [];
+  if (q.q) parts.push(`Search "${q.q}"`);
+  if (q.hospital) parts.push(`Hospital: ${ctx.hospitals.find((h) => h.id === q.hospital)?.name ?? "—"}`);
+  if (q.department) {
+    const d = await tx.department.findFirst({ where: { id: q.department }, select: { name: true } });
+    parts.push(`Department: ${d?.name ?? "—"}`);
+  }
+  if (q.category) {
+    const c = await tx.equipmentCategory.findFirst({ where: { id: q.category }, select: { name: true } });
+    parts.push(`Category: ${c?.name ?? "—"}`);
+  }
+  if (q.manufacturer) {
+    const m = await tx.manufacturer.findFirst({ where: { id: q.manufacturer }, select: { name: true } });
+    parts.push(`Manufacturer: ${m?.name ?? "—"}`);
+  }
+  if (q.status) parts.push(`Status: ${q.status}`);
+  if (q.risk) parts.push(`Risk: ${q.risk}`);
+  parts.push(
+    q.archived === "include"
+      ? "Archived assets included"
+      : q.archived === "only"
+        ? "Archived assets only"
+        : "Archived assets excluded",
+  );
+  return parts.join("; ");
 }
+
+/** CSV of the register (kept for existing callers). */
+export async function exportAssetsCsv(ctx: AccessContext, rawQuery: unknown): Promise<{ csv: string; count: number }> {
+  const r = await exportAssets(ctx, rawQuery, "csv");
+  return { csv: r.body.toString(), count: r.count };
+}
+
+/** Quotes a CSV cell and neutralises spreadsheet formulas (moved to the shared export module). */
+export { csvCell } from "../export/document";
 
 // ─── Warranties ──────────────────────────────────────────────────────────────
 

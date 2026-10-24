@@ -136,9 +136,7 @@ export default async function SafetyReportPage({ searchParams }: { searchParams:
         title="Electrical safety and return to service"
         description={`${PERIOD_LABELS[s.period.preset]}: ${s.period.label}. Test results as recorded at sign-off, with the test standard and version stored on each record.`}
         actions={
-          can(ctx, "analytics.export") ? (
-            <ExportLink report="safety" query={query} label="Export test history (CSV)" />
-          ) : null
+          can(ctx, "analytics.export") ? <ExportLink report="safety" query={query} label="Export test history" /> : null
         }
       />
       <Card>

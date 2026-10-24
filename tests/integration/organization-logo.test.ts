@@ -1,11 +1,23 @@
 // Optional hospital logo (printed on job sheets): who may set it, what files
 // are accepted, isolation between organisations, and the database rules.
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { db } from "@/server/db/client";
 import { AuthorizationError, NotFoundError, ValidationError } from "@/server/authz/errors";
 import { getLogoImage, getLogoInfo, removeLogo, setLogo } from "@/server/services/organization-logo";
 import { contextFor, orgId, owner, singleConnectionAppDb, userByEmail } from "../helpers";
+
+// Other test files may have set and removed a Coastal logo earlier in the run,
+// so counts are measured from the state at the start of this file.
+let baseRows = 0;
+let baseSet = 0;
+let baseRemoved = 0;
+beforeAll(async () => {
+  const coastal = await orgId("coastal-health");
+  baseRows = await owner.organizationLogo.count({ where: { organizationId: coastal } });
+  baseSet = await owner.auditLog.count({ where: { action: "organization.logo_set", organizationId: coastal } });
+  baseRemoved = await owner.auditLog.count({ where: { action: "organization.logo_removed", organizationId: coastal } });
+});
 
 afterAll(async () => {
   await db.$disconnect();
@@ -58,16 +70,16 @@ describe("hospital logo", () => {
     const meta = await sharp(Buffer.from(image.content)).metadata();
     expect(meta.width).toBeLessThanOrEqual(800);
     expect(meta.height).toBeLessThanOrEqual(400);
-    expect(await owner.auditLog.count({ where: { action: "organization.logo_set", actorUserId: hodan.user.id } })).toBe(
-      1,
-    );
+    expect(
+      await owner.auditLog.count({ where: { action: "organization.logo_set", organizationId: hodan.organization.id } }),
+    ).toBe(baseSet + 1);
   });
 
   it("accepts a JPEG as a replacement; the newest upload is the current logo and history is kept", async () => {
     const hodan = await contextFor("hodan.ali@coastal.example", "coastal-health");
     await setLogo(hodan, { name: "second.jpg", bytes: new Uint8Array(await jpeg()) });
     expect((await getLogoImage(hodan)).mime).toBe("image/jpeg");
-    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(2);
+    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(baseRows + 2);
   });
 
   it("refuses SVG, GIF, text, empty and oversize files", async () => {
@@ -88,7 +100,7 @@ describe("hospital logo", () => {
       await expect(setLogo(hodan, { name: "x.png", bytes })).rejects.toBeInstanceOf(ValidationError);
     }
     // Nothing was stored by the refused uploads.
-    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(2);
+    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(baseRows + 2);
   });
 
   it("another organisation cannot see it, and has no logo of its own", async () => {
@@ -169,7 +181,11 @@ describe("hospital logo", () => {
     expect(await getLogoInfo(hodan)).toBeNull();
     await expect(getLogoImage(hodan)).rejects.toBeInstanceOf(NotFoundError);
     await expect(removeLogo(hodan)).rejects.toBeInstanceOf(ValidationError);
-    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(3);
-    expect(await owner.auditLog.count({ where: { action: "organization.logo_removed" } })).toBe(1);
+    expect(await owner.organizationLogo.count({ where: { organizationId: hodan.organization.id } })).toBe(baseRows + 3);
+    expect(
+      await owner.auditLog.count({
+        where: { action: "organization.logo_removed", organizationId: hodan.organization.id },
+      }),
+    ).toBe(baseRemoved + 1);
   });
 });

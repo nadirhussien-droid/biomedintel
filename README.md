@@ -7,7 +7,7 @@ BiomedIntel.ai is an AI-powered CMMS (Computerized Maintenance Management System
 This repository contains:
 
 - **Stage 3 foundation:** project setup, database, secure sign-in, roles and permissions, multi-hospital tenant isolation, audit logging and the branded application shell.
-- **Stage 4 equipment register:** asset register with search, filters and paging; asset details; create/edit/archive; decommissioning with NUM approval; equipment catalog; Code 128 barcode labels, barcode scanning (handheld scanner, phone camera or typing) and printable labels; CSV export.
+- **Stage 4 equipment register:** asset register with search, filters and paging; asset details; create/edit/archive; decommissioning with NUM approval; equipment catalog; Code 128 barcode labels, barcode scanning (handheld scanner, phone camera or typing) and printable labels; export to Excel, PDF or CSV (`docs/EXPORTS.md`).
 
 - **Stage 5 work orders:** fault reports from a scanned barcode (handheld scanner, camera or typing), with photos; assignment; the technician workflow; sign-off by the technician who did the job; downtime; a manager review list; in-app notifications; printable job sheets.
 
@@ -132,19 +132,19 @@ The seed also loads **fictional demonstration equipment**: 14 assets in Coastal 
 
 Open **Equipment Assets** in the sidebar.
 
-| Task                         | Where                                                           | Who can do it                                                                                                                |
-| ---------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Search, filter, sort, page   | Register page                                                   | Everyone, but only for their own hospitals and departments                                                                   |
-| Register an asset            | **Register asset**                                              | Org Admin, Engineering Manager, Technician                                                                                   |
-| Edit an asset                | Asset page → **Edit asset**                                     | Org Admin, Engineering Manager, Technician (purchase cost: admins and managers only)                                         |
-| Change status or room        | Asset page → **Quick update**                                   | Org Admin, Engineering Manager, Technician                                                                                   |
-| Request decommissioning      | Asset page → **Decommissioning**                                | Org Admin, Engineering Manager, Technician                                                                                   |
-| Approve decommissioning      | Asset page, or the approvals box on the register                | The department's **NUM** (Department Head). If it has none: the Engineering Manager or Facility Manager. Never the requester |
-| Archive / restore            | Asset page → **Archive**                                        | Org Admin, Engineering Manager                                                                                               |
-| Find an asset by barcode     | Register → **Scan barcode** (or type it in the register search) | Everyone, but only for their own hospitals and departments                                                                   |
-| Print labels                 | Asset page → **Print label**, or tick assets in the register    | Org Admin, Engineering Manager, Technician                                                                                   |
-| Export CSV                   | Register → **Export CSV** (uses the current filters)            | Org Admin, Engineering Manager, Inventory Manager, Auditor                                                                   |
-| Manufacturers, models, rooms | Register → **Equipment catalog**                                | Add: Org Admin, Engineering Manager, Technician. Everyone can view                                                           |
+| Task                         | Where                                                               | Who can do it                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Search, filter, sort, page   | Register page                                                       | Everyone, but only for their own hospitals and departments                                                                   |
+| Register an asset            | **Register asset**                                                  | Org Admin, Engineering Manager, Technician                                                                                   |
+| Edit an asset                | Asset page → **Edit asset**                                         | Org Admin, Engineering Manager, Technician (purchase cost: admins and managers only)                                         |
+| Change status or room        | Asset page → **Quick update**                                       | Org Admin, Engineering Manager, Technician                                                                                   |
+| Request decommissioning      | Asset page → **Decommissioning**                                    | Org Admin, Engineering Manager, Technician                                                                                   |
+| Approve decommissioning      | Asset page, or the approvals box on the register                    | The department's **NUM** (Department Head). If it has none: the Engineering Manager or Facility Manager. Never the requester |
+| Archive / restore            | Asset page → **Archive**                                            | Org Admin, Engineering Manager                                                                                               |
+| Find an asset by barcode     | Register → **Scan barcode** (or type it in the register search)     | Everyone, but only for their own hospitals and departments                                                                   |
+| Print labels                 | Asset page → **Print label**, or tick assets in the register        | Org Admin, Engineering Manager, Technician                                                                                   |
+| Export register              | Register → **Export register: Excel / PDF / CSV** (current filters) | Org Admin, Engineering Manager, Inventory Manager, Auditor                                                                   |
+| Manufacturers, models, rooms | Register → **Equipment catalog**                                    | Add: Org Admin, Engineering Manager, Technician. Everyone can view                                                           |
 
 Nothing is ever deleted. Archived assets keep their full history and can be restored. Decommissioned assets become read-only.
 
@@ -289,7 +289,7 @@ Open **Reports and Analytics** in the sidebar. Full details, definitions and for
 - **Reports:** PM compliance (the single source of compliance figures — `/maintenance/reports` now redirects here), work order performance, equipment reliability, electrical safety and return to service, plan governance, lifecycle and cost.
 - **Filters:** period (this month, last month, this year, last 12 months, custom), hospital, department, location, category, priority, status. Dates use each hospital's local calendar; durations are calendar time.
 - **Honest figures:** compliance is N/A when nothing was due; MTBF/MTTR are not shown because operating hours are not recorded (labelled proxies are used instead); only acquisition cost is shown, and only to financial roles.
-- **CSV export** (Org Admin, Engineering Manager, Auditor): same filters as the screen, formula-safe, with generation time and period. Every export is audited.
+- **Export to Excel, PDF or CSV** (Org Admin, Engineering Manager, Auditor): same filters as the screen, formula-safe, with generation time and period. Every export is audited with its format. See `docs/EXPORTS.md`.
 - **Scheduled reports** (Org Admin, Engineering Manager): weekly or monthly read-only snapshots, delivered as in-app notifications (no email is sent).
 - **Fault category:** an optional field when signing off a corrective job, used by the reliability report.
 

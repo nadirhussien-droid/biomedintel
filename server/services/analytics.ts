@@ -14,7 +14,9 @@ import { withTenant } from "../db/tenant";
 import { audit } from "../audit/audit";
 import { can, requirePermission, type AccessContext } from "../authz/access";
 import { NotFoundError } from "../authz/errors";
-import { assetScopeWhere, csvCell } from "./assets";
+import { assetScopeWhere } from "./assets";
+import { toCsv, type ExportDoc, type ExportFormat, type Section } from "../export/document";
+import { renderExport } from "../export/render";
 import { peopleNames } from "./work-order-core";
 import { withoutApprovedPmWhere } from "./pm-plans";
 import {
@@ -1225,160 +1227,189 @@ export async function getLifecycleReport(ctx: AccessContext, raw: unknown) {
   return { ...r, financial, ...result };
 }
 
-// ─── CSV export ──────────────────────────────────────────────────────────────
-
-const line = (cells: (string | number | null | undefined)[]) =>
-  cells.map((c) => csvCell(c === null || c === undefined ? "" : String(c))).join(",");
+// ─── Export (CSV, Excel, PDF) ────────────────────────────────────────────────
 
 /**
- * CSV for one report: same permission, scope and server-side filters as the
- * screen; every cell is protected against spreadsheet formulas; the first
- * lines state the report, organisation, generation time and period. Audited.
+ * The content of one report export: same permission, scope and server-side
+ * filters as the screen. The first lines state the report, organisation,
+ * generation time and period. Rendered as CSV, Excel or PDF by server/export.
  */
-export async function exportAnalyticsCsv(
+async function buildAnalyticsDoc(
   ctx: AccessContext,
   report: ReportName,
   raw: unknown,
   opts: { now?: Date } = {},
-) {
-  await requirePermission(ctx, "analytics.export", { entityType: "analytics" });
+): Promise<{ doc: ExportDoc; rows: number }> {
   const generatedAt = (opts.now ?? new Date()).toISOString();
-  const head = (period: string) => [
-    line(["Report", REPORT_TITLES[report]]),
-    line(["Organisation", ctx.organization.name]),
-    line(["Generated (UTC)", generatedAt]),
-    line(["Period", period]),
-    line(["Times", "Calendar time; dates in each hospital's local time zone"]),
-    "",
+  const meta = (period: string): [string, string][] => [
+    ["Report", REPORT_TITLES[report]],
+    ["Organisation", ctx.organization.name],
+    ["Generated (UTC)", generatedAt],
+    ["Period", period],
+    ["Times", "Calendar time; dates in each hospital's local time zone"],
   ];
-  let lines: string[] = [];
-  let rows = 0;
+  const doc = (period: string, sections: Section[]): ExportDoc => ({
+    title: REPORT_TITLES[report],
+    organization: ctx.organization.name,
+    meta: meta(period),
+    sections,
+  });
+  const na = (v: number | string | null | undefined) => v ?? "N/A";
+
   if (report === "overview") {
     const o = await getAnalyticsOverview(ctx, raw, opts);
-    lines = [
-      ...head(o.period.label),
-      line(["Metric", "Value", "Basis", "Definition"]),
-      ...o.metrics.map((m) => line([m.label, m.display, m.basis === "now" ? "Right now" : "In period", m.definition])),
-    ];
-    rows = o.metrics.length;
-  } else if (report === "pm-compliance") {
+    return {
+      doc: doc(o.period.label, [
+        {
+          title: "Key figures",
+          columns: ["Metric", "Value", "Basis", "Definition"],
+          rows: o.metrics.map((m) => [m.label, m.display, m.basis === "now" ? "Right now" : "In period", m.definition]),
+        },
+      ]),
+      rows: o.metrics.length,
+    };
+  }
+  if (report === "pm-compliance") {
     const all = await getPmComplianceReport(ctx, { ...(raw as object), page: 1 }, opts);
     const groups = [all.total, ...all.groups];
-    lines = [
-      ...head(all.period.label),
-      line([
-        "Group",
-        "Due",
-        "On time",
-        "Late",
-        "Open/overdue",
-        "Missed",
-        "Cancelled",
-        "Failed to generate",
-        "On-time compliance %",
-        "Completion %",
+    return {
+      doc: doc(all.period.label, [
+        {
+          title: "Compliance by group",
+          columns: [
+            "Group",
+            "Due",
+            "On time",
+            "Late",
+            "Open/overdue",
+            "Missed",
+            "Cancelled",
+            "Failed to generate",
+            "On-time compliance %",
+            "Completion %",
+          ],
+          rows: groups.map((g) => [
+            g.label,
+            g.due,
+            g.onTime,
+            g.late,
+            g.open,
+            g.missed,
+            g.cancelled,
+            g.failed,
+            na(g.compliance),
+            na(g.completion),
+          ]),
+        },
       ]),
-      ...groups.map((g) =>
-        line([
-          g.label,
-          g.due,
-          g.onTime,
-          g.late,
-          g.open,
-          g.missed,
-          g.cancelled,
-          g.failed,
-          g.compliance ?? "N/A",
-          g.completion ?? "N/A",
-        ]),
-      ),
-    ];
-    rows = groups.length;
-  } else if (report === "work-orders") {
+      rows: groups.length,
+    };
+  }
+  if (report === "work-orders") {
     const w = await getWorkOrderAnalytics(ctx, raw, opts);
-    lines = [
-      ...head(w.period.label),
-      line(["Metric", "Value"]),
-      line(["Created in period", w.counts.created]),
-      line(["Completed in period", w.counts.completed]),
-      line(["Open now", w.counts.open]),
-      line(["Cancelled in period", w.counts.cancelled]),
-      line(["Reopened in period", w.counts.reopened]),
-      line(["Planned (PM, tests, inspections) created", w.counts.planned]),
-      line(["Corrective created", w.counts.corrective]),
-      line(["Completion time mean (h)", w.durations.completion.avg]),
-      line(["Completion time median (h)", w.durations.completion.median]),
-      line(["Report to first assignment mean (h)", w.durations.toAssignment.avg]),
-      line(["Assignment to start mean (h)", w.durations.assignmentToStart.avg]),
-      line(["Repair duration (start to sign-off) mean (h)", w.durations.repair.avg]),
-      line(["Jobs with time on hold", w.durations.onHold.jobs]),
-      line(["Time on hold mean (h)", w.durations.onHold.avg]),
-      line(["Completed within target %", w.target.rate ?? "N/A"]),
-      line(["Repeat repairs (within 30 days)", w.repeats.list.length]),
-      "",
-      line(["Backlog age (days)", "Open jobs"]),
-      ...w.backlog.map((b) => line([b.bucket, b.count])),
-      ...(w.workload
-        ? [
-            "",
-            line(["Engineer", "Open assigned", "Completed in period", "Logged minutes", "Mean completion (h)"]),
-            ...w.workload.map((x) => line([x.name, x.open, x.completed, x.minutes, x.avgCompletionH])),
-          ]
-        : []),
+    const sections: Section[] = [
+      {
+        title: "Summary",
+        columns: ["Metric", "Value"],
+        rows: [
+          ["Created in period", w.counts.created],
+          ["Completed in period", w.counts.completed],
+          ["Open now", w.counts.open],
+          ["Cancelled in period", w.counts.cancelled],
+          ["Reopened in period", w.counts.reopened],
+          ["Planned (PM, tests, inspections) created", w.counts.planned],
+          ["Corrective created", w.counts.corrective],
+          ["Completion time mean (h)", w.durations.completion.avg],
+          ["Completion time median (h)", w.durations.completion.median],
+          ["Report to first assignment mean (h)", w.durations.toAssignment.avg],
+          ["Assignment to start mean (h)", w.durations.assignmentToStart.avg],
+          ["Repair duration (start to sign-off) mean (h)", w.durations.repair.avg],
+          ["Jobs with time on hold", w.durations.onHold.jobs],
+          ["Time on hold mean (h)", w.durations.onHold.avg],
+          ["Completed within target %", na(w.target.rate)],
+          ["Repeat repairs (within 30 days)", w.repeats.list.length],
+        ],
+      },
+      {
+        title: "Open jobs by age",
+        columns: ["Backlog age (days)", "Open jobs"],
+        rows: w.backlog.map((b) => [b.bucket, b.count]),
+      },
     ];
-    rows = 17;
-  } else if (report === "reliability") {
+    if (w.workload) {
+      sections.push({
+        title: "Engineer workload",
+        columns: ["Engineer", "Open assigned", "Completed in period", "Logged minutes", "Mean completion (h)"],
+        rows: w.workload.map((x) => [x.name, x.open, x.completed, x.minutes, x.avgCompletionH]),
+      });
+    }
+    return { doc: doc(w.period.label, sections), rows: 17 };
+  }
+  if (report === "reliability") {
     const rel = await getReliabilityReport(ctx, raw, opts);
-    lines = [
-      ...head(rel.period.label),
-      line([
-        rel.by === "model" ? "Model" : "Category",
-        "Fault reports",
-        "Assets affected",
-        "Assets in register",
-        "Reports per asset",
-        "No fault found",
-        "Repaired",
+    return {
+      doc: doc(rel.period.label, [
+        {
+          title: rel.by === "model" ? "Fault reports by model" : "Fault reports by category",
+          columns: [
+            rel.by === "model" ? "Model" : "Category",
+            "Fault reports",
+            "Assets affected",
+            "Assets in register",
+            "Reports per asset",
+            "No fault found",
+            "Repaired",
+          ],
+          rows: rel.failures.map((f) => [
+            f.label,
+            f.reports,
+            f.assetsAffected,
+            f.assetsInRegister,
+            f.reportsPerAsset,
+            f.noFaultFound,
+            f.repaired,
+          ]),
+        },
+        {
+          title: "Assets with repeat faults",
+          columns: [
+            "Asset with repeat faults",
+            "Name",
+            "Fault reports",
+            "Mean calendar days between reports (proxy, not MTBF)",
+          ],
+          rows: rel.repeatAssets.map((a) => [a.asset_tag, a.name, a.reports, a.meanGapDays]),
+        },
       ]),
-      ...rel.failures.map((f) =>
-        line([f.label, f.reports, f.assetsAffected, f.assetsInRegister, f.reportsPerAsset, f.noFaultFound, f.repaired]),
-      ),
-      "",
-      line([
-        "Asset with repeat faults",
-        "Name",
-        "Fault reports",
-        "Mean calendar days between reports (proxy, not MTBF)",
-      ]),
-      ...rel.repeatAssets.map((a) => line([a.asset_tag, a.name, a.reports, a.meanGapDays])),
-    ];
-    rows = rel.failures.length + rel.repeatAssets.length;
-  } else if (report === "safety") {
+      rows: rel.failures.length + rel.repeatAssets.length,
+    };
+  }
+  if (report === "safety") {
     const s = await getSafetyReport(ctx, { ...(raw as object), page: 1 }, opts);
     const all = [s.history.rows];
     for (let pg = 2; pg <= Math.min(s.history.pageCount, 40); pg++)
       all.push((await getSafetyReport(ctx, { ...(raw as object), page: pg }, opts)).history.rows);
     const names = s.names;
-    lines = [
-      ...head(s.period.label),
-      line([
-        "Signed off (UTC)",
-        "Work order",
-        "Type",
-        "Result",
-        "Asset",
-        "Model",
-        "Hospital",
-        "Standard and version",
-        "Electrical safety items",
-        "Failed items",
-        "Tester",
-      ]),
-      ...all
-        .flat()
-        .map((h) =>
-          line([
-            h.completed_at.toISOString(),
+    const rows = all.flat();
+    return {
+      doc: doc(s.period.label, [
+        {
+          title: "Electrical safety and test history",
+          columns: [
+            "Signed off (UTC)",
+            "Work order",
+            "Type",
+            "Result",
+            "Asset",
+            "Model",
+            "Hospital",
+            "Standard and version",
+            "Electrical safety items",
+            "Failed items",
+            "Tester",
+          ],
+          rows: rows.map((h) => [
+            h.completed_at,
             h.number,
             h.type,
             h.result,
@@ -1390,76 +1421,92 @@ export async function exportAnalyticsCsv(
             h.failedItems,
             names[h.completed_by] ?? h.completed_by,
           ]),
-        ),
-    ];
-    rows = all.flat().length;
-  } else if (report === "governance") {
-    const g = await getPlanGovernance(ctx, opts);
-    lines = [
-      ...head(`As of ${g.today}`),
-      line(["Assets without an approved plan, by category", "Count"]),
-      ...g.withoutPlan.byCategory.map((c) => line([c.category, c.count])),
-      "",
-      line([
-        "Plan with interval exception",
-        "Interval",
-        "Manufacturer interval",
-        "Source",
-        "Justification or reference",
-        "Approved by",
-        "Approved at (UTC)",
+        },
       ]),
-      ...g.exceptions.map((e) =>
-        line([
-          e.name,
-          e.interval,
-          e.manufacturer ?? "None recorded",
-          e.source,
-          e.basis ?? "",
-          g.names[e.approvedById] ?? e.approvedById,
-          e.approvedAt.toISOString(),
-        ]),
-      ),
-    ];
-    rows = g.withoutPlan.byCategory.length + g.exceptions.length;
-  } else if (report === "costs") {
+      rows: rows.length,
+    };
+  }
+  if (report === "governance") {
+    const g = await getPlanGovernance(ctx, opts);
+    return {
+      doc: doc(`As of ${g.today}`, [
+        {
+          title: "Assets without an approved plan",
+          columns: ["Assets without an approved plan, by category", "Count"],
+          rows: g.withoutPlan.byCategory.map((c) => [c.category, c.count]),
+        },
+        {
+          title: "Plans with an interval exception",
+          columns: [
+            "Plan with interval exception",
+            "Interval",
+            "Manufacturer interval",
+            "Source",
+            "Justification or reference",
+            "Approved by",
+            "Approved at (UTC)",
+          ],
+          rows: g.exceptions.map((e) => [
+            e.name,
+            e.interval,
+            e.manufacturer ?? "None recorded",
+            e.source,
+            e.basis ?? "",
+            g.names[e.approvedById] ?? e.approvedById,
+            e.approvedAt,
+          ]),
+        },
+      ]),
+      rows: g.withoutPlan.byCategory.length + g.exceptions.length,
+    };
+  }
+  if (report === "costs") {
     const { getCostReport } = await import("./cost-analytics");
     const c = await getCostReport(ctx, raw);
-    lines = [
-      ...head(c.period.label),
-      line([
-        "Recorded figures only. Parts cost = issued minus returned at the unit cost recorded when issued; external service = cost recorded on the supplier record. Labour is not included. Currencies are never combined.",
-      ]),
-      "",
-      line(["Part number", "Name", "Unit", "Net quantity used", "Jobs"]),
-      ...c.consumption.map((x) => line([x.part_number, x.name, x.unit, x.used, x.jobs])),
-      "",
-      line(["Written off: part number", "Name", "Units", "Reasons"]),
-      ...c.writeOffs.map((x) => line([x.part_number, x.name, x.units, x.reasons])),
-      "",
-      line([
-        "Supplier",
-        "Service requests",
-        "Completed",
-        "Open",
-        "With expected and completion dates",
-        "Completed by expected date",
-      ]),
-      ...c.supplierHistory.map((x) => line([x.name, x.requests, x.completed, x.open, x.withDates, x.onTime])),
-      ...(c.costs
-        ? [
-            "",
-            line(["Asset", "Name", "Currency", "Parts cost", "External service cost", "Total recorded"]),
-            ...c.costs.byAsset.map((x) => line([x.asset_tag, x.name, x.currency, x.parts, x.service, x.total])),
-          ]
-        : []),
+    const sections: Section[] = [
+      {
+        note: "Recorded figures only. Parts cost = issued minus returned at the unit cost recorded when issued; external service = cost recorded on the supplier record. Labour is not included. Currencies are never combined.",
+      },
+      {
+        title: "Parts used",
+        columns: ["Part number", "Name", "Unit", "Net quantity used", "Jobs"],
+        rows: c.consumption.map((x) => [x.part_number, x.name, x.unit, x.used, x.jobs]),
+      },
+      {
+        title: "Parts written off",
+        columns: ["Written off: part number", "Name", "Units", "Reasons"],
+        rows: c.writeOffs.map((x) => [x.part_number, x.name, x.units, x.reasons]),
+      },
+      {
+        title: "External service by supplier",
+        columns: [
+          "Supplier",
+          "Service requests",
+          "Completed",
+          "Open",
+          "With expected and completion dates",
+          "Completed by expected date",
+        ],
+        rows: c.supplierHistory.map((x) => [x.name, x.requests, x.completed, x.open, x.withDates, x.onTime]),
+      },
     ];
-    rows = c.consumption.length + c.writeOffs.length + c.supplierHistory.length + (c.costs?.byAsset.length ?? 0);
-  } else {
-    const l = await getLifecycleReport(ctx, raw);
-    lines = [
-      ...head(`As of ${l.today}`),
-      line([
+    if (c.costs) {
+      sections.push({
+        title: "Recorded cost by asset",
+        columns: ["Asset", "Name", "Currency", "Parts cost", "External service cost", "Total recorded"],
+        rows: c.costs.byAsset.map((x) => [x.asset_tag, x.name, x.currency, x.parts, x.service, x.total]),
+      });
+    }
+    return {
+      doc: doc(c.period.label, sections),
+      rows: c.consumption.length + c.writeOffs.length + c.supplierHistory.length + (c.costs?.byAsset.length ?? 0),
+    };
+  }
+  const l = await getLifecycleReport(ctx, raw);
+  const sections: Section[] = [
+    {
+      title: "Assets due for replacement review",
+      columns: [
         "Asset",
         "Name",
         "Hospital",
@@ -1467,37 +1514,59 @@ export async function exportAnalyticsCsv(
         "Expected life (years)",
         "EOL date",
         "Reason for replacement review",
+      ],
+      rows: l.review.map((a) => [
+        a.asset_tag,
+        a.name,
+        a.hospital,
+        a.acquired?.toISOString().slice(0, 10),
+        a.expected_life,
+        a.eol_date?.toISOString().slice(0, 10),
+        a.reason === "eol_date" ? "EOL date within threshold" : "Expected life reached within threshold",
       ]),
-      ...l.review.map((a) =>
-        line([
-          a.asset_tag,
-          a.name,
-          a.hospital,
-          a.acquired?.toISOString().slice(0, 10),
-          a.expected_life,
-          a.eol_date?.toISOString().slice(0, 10),
-          a.reason === "eol_date" ? "EOL date within threshold" : "Expected life reached within threshold",
-        ]),
-      ),
-      ...(l.costs
-        ? [
-            "",
-            line(["Currency", "Category", "Assets with cost", "Total acquisition cost"]),
-            ...l.costs.map((c) => line([c.currency, c.group, c.assets, c.total])),
-          ]
-        : []),
-    ];
-    rows = l.review.length;
+    },
+  ];
+  if (l.costs) {
+    sections.push({
+      title: "Acquisition cost by category",
+      columns: ["Currency", "Category", "Assets with cost", "Total acquisition cost"],
+      rows: l.costs.map((c) => [c.currency, c.group, c.assets, c.total]),
+    });
   }
+  return { doc: doc(`As of ${l.today}`, sections), rows: l.review.length };
+}
+
+/** One report as CSV, Excel or PDF. Permission-checked and audited (with the format). */
+export async function exportAnalytics(
+  ctx: AccessContext,
+  report: ReportName,
+  raw: unknown,
+  format: ExportFormat,
+  opts: { now?: Date } = {},
+) {
+  await requirePermission(ctx, "analytics.export", { entityType: "analytics" });
+  const { doc, rows } = await buildAnalyticsDoc(ctx, report, raw, opts);
+  const file = await renderExport(ctx, doc, format, { csv: () => toCsv(doc) });
   await withTenant(tenant(ctx), (tx) =>
     audit(tx, {
       organizationId: ctx.organization.id,
       actorUserId: ctx.user.id,
       action: "analytics.exported",
       entityType: "analytics",
-      metadata: { report, rows, filters: analyticsQuerySchema.parse(raw ?? {}) },
+      metadata: { report, rows, format, filters: analyticsQuerySchema.parse(raw ?? {}) },
       request: ctx.request,
     }),
   );
-  return { csv: lines.join("\r\n"), report };
+  return { ...file, report };
+}
+
+/** CSV for one report (kept for existing callers and tests). */
+export async function exportAnalyticsCsv(
+  ctx: AccessContext,
+  report: ReportName,
+  raw: unknown,
+  opts: { now?: Date } = {},
+) {
+  const r = await exportAnalytics(ctx, report, raw, "csv", opts);
+  return { csv: r.body.toString(), report };
 }
