@@ -49,6 +49,22 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
   ]) {
     raw[key] = first(sp[key]);
   }
+  // The register stays closed until someone searches, filters or asks for the full list,
+  // so a hospital with hundreds of assets does not open on a wall of rows.
+  const showAll = first(sp.all) === "1";
+  // Only choices typed in the URL count here (the header's default hospital does not).
+  const searching =
+    showAll ||
+    Boolean(
+      raw.q?.trim() ||
+        raw.category ||
+        raw.manufacturer ||
+        raw.status ||
+        raw.risk ||
+        (raw.archived && raw.archived !== "exclude") ||
+        (raw.hospital && raw.hospital !== "all") ||
+        (raw.department && raw.department !== "all"),
+    );
   // The header's hospital/department choice is the default filter; "all" clears it.
   if (raw.hospital === undefined && ctx.selection.hospitalId) raw.hospital = ctx.selection.hospitalId;
   if (raw.department === undefined && ctx.selection.departmentId) raw.department = ctx.selection.departmentId;
@@ -75,6 +91,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
       archived: q.archived === "exclude" ? undefined : q.archived,
       sort: q.sort === "assetTag" ? undefined : q.sort,
       dir: q.dir === "asc" ? undefined : q.dir,
+      all: showAll ? "1" : undefined,
       page: q.page,
       ...overrides,
     };
@@ -250,14 +267,33 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
         <CardTitle
           action={
             <span className="text-ink-muted text-sm" aria-live="polite">
-              {result.total === 0 ? "No assets" : `Showing ${from}–${to} of ${result.total}`}
+              {!searching
+                ? `${result.total} in your register`
+                : result.total === 0
+                  ? "No assets"
+                  : `Showing ${from}–${to} of ${result.total}`}
             </span>
           }
         >
           Register
         </CardTitle>
 
-        {result.total === 0 ? (
+        {!searching ? (
+          <div className="bg-surface rounded-md px-4 py-10 text-center">
+            <p className="font-semibold">Search or choose a filter to see equipment.</p>
+            <p className="text-ink-muted mt-1 text-sm">
+              Your register holds {result.total} {result.total === 1 ? "asset" : "assets"}. Type an asset ID, name,
+              manufacturer, model or serial number above, or{" "}
+              <Link
+                href="/assets?all=1&hospital=all&department=all"
+                className="font-semibold text-teal-700 hover:underline"
+              >
+                show the full list
+              </Link>
+              .
+            </p>
+          </div>
+        ) : result.total === 0 ? (
           <div className="bg-surface rounded-md px-4 py-10 text-center">
             <p className="font-semibold">No equipment matches these filters.</p>
             <p className="text-ink-muted mt-1 text-sm">
@@ -370,7 +406,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
           </form>
         )}
 
-        {result.pageCount > 1 ? (
+        {searching && result.pageCount > 1 ? (
           <nav aria-label="Pages" className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <span className="text-ink-muted">
               Page {result.page} of {result.pageCount}
