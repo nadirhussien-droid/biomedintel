@@ -29,7 +29,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg", "sharp", "pdfjs-dist"],
+  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg", "sharp", "pdfjs-dist", "pdfkit", "exceljs"],
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
