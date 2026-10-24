@@ -15,7 +15,7 @@ import { audit } from "../audit/audit";
 import { can, requirePermission, type AccessContext } from "../authz/access";
 import { NotFoundError } from "../authz/errors";
 import { assetScopeWhere } from "./assets";
-import { overviewCharts } from "@/lib/analytics/charts";
+import { overviewCharts, spendCharts, staffCharts } from "@/lib/analytics/charts";
 import { toCsv, type ExportDoc, type ExportFormat, type Section } from "../export/document";
 import { renderExport } from "../export/render";
 import { peopleNames } from "./work-order-core";
@@ -1462,6 +1462,92 @@ async function buildAnalyticsDoc(
         },
       ]),
       rows: g.withoutPlan.byCategory.length + g.exceptions.length,
+    };
+  }
+  if (report === "department-spend") {
+    const { getDepartmentSpend } = await import("./department-spend");
+    const d = await getDepartmentSpend(ctx, raw);
+    return {
+      doc: doc(d.period.label, [
+        {
+          title: "Spend by department and month",
+          note: "Recorded figures only. Parts = issued minus returned at the unit cost recorded when issued. Labour cost = logged hours x the person's hourly rate on that day; people with no rate add hours but no money. External service = cost on the supplier record in the month it was completed. Currencies are never combined.",
+          charts: spendCharts(d.rows, d.totals),
+          columns: [
+            "Month",
+            "Department",
+            "Labour hours",
+            "Currency",
+            "Parts",
+            "Labour cost",
+            "External service",
+            "Total",
+          ],
+          rows: d.rows.map((r) => [
+            r.month,
+            r.department,
+            r.hours,
+            r.currency ?? "—",
+            r.parts,
+            r.labour,
+            r.service,
+            r.total,
+          ]),
+        },
+        {
+          title: "Totals for the period",
+          note: `Labour hours logged: ${d.totalHours}, of which ${d.unratedHours} by people with no hourly rate set.`,
+          columns: ["Currency", "Parts", "Labour cost", "External service", "Total"],
+          rows: d.totals.map((t) => [t.currency, t.parts, t.labour, t.service, t.total]),
+        },
+      ]),
+      rows: d.rows.length,
+    };
+  }
+  if (report === "staff-effectiveness") {
+    const { getStaffEffectiveness } = await import("./staff-effectiveness");
+    const s = await getStaffEffectiveness(ctx, raw, opts);
+    return {
+      doc: doc(s.period.label, [
+        {
+          title: "Recorded work and results by engineer",
+          note: "Context for a conversation, not a ranking or a score. Figures depend on how fully work is recorded. Repeat faults = repair jobs where the same device was reported again within 30 days of sign-off.",
+          charts: staffCharts(s.rows),
+          columns: [
+            "Engineer",
+            "Jobs completed",
+            "Repairs",
+            "Planned",
+            "Hours logged",
+            "Hours per job",
+            "Mean repair time (h)",
+            "Repeat faults",
+            "Reopened",
+            "Open now",
+            "Overdue now",
+            "PM due",
+            "PM on time",
+            "PM on time %",
+          ],
+          rows: s.rows.map((r) => [
+            r.name,
+            r.completed,
+            r.corrective,
+            r.planned,
+            r.hours,
+            r.hoursPerJob,
+            r.meanCompletionH,
+            r.repeatFaults,
+            r.reopened,
+            r.openNow,
+            r.overdueNow,
+            r.pmDue,
+            r.pmOnTime,
+            r.pmOnTimePct,
+          ]),
+        },
+      ]),
+      rows: s.rows.length,
     };
   }
   if (report === "costs") {

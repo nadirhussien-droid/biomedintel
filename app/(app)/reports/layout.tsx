@@ -27,6 +27,9 @@ export default async function ReportsLayout({ children }: { children: ReactNode 
     { href: "/reports/governance", label: "Plan governance" },
     { href: "/reports/lifecycle", label: "Lifecycle & cost" },
     { href: "/reports/costs", label: "Parts & service" },
+    ...(can(ctx, "analytics.financial") ? [{ href: "/reports/department-spend", label: "Department spend" }] : []),
+    ...(can(ctx, "analytics.workload") ? [{ href: "/reports/staff", label: "Staff effectiveness" }] : []),
+    ...(can(ctx, "labour.rates") ? [{ href: "/reports/labour-rates", label: "Labour rates" }] : []),
     { href: "/reports/scheduled", label: "Scheduled reports" },
   ];
   return (

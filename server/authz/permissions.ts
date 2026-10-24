@@ -147,6 +147,8 @@ export const PERMISSIONS = {
   "analytics.export": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
   // Financial figures (acquisition cost). Same roles that may see asset cost.
   "analytics.financial": ["ORG_ADMIN", "ENGINEERING_MANAGER", "AUDITOR"],
+  // Hourly labour rates used by the cost reports (managers only).
+  "labour.rates": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
   // Create and change scheduled reports.
   "reports.schedule": ["ORG_ADMIN", "ENGINEERING_MANAGER"],
 

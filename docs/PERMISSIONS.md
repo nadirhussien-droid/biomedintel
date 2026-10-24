@@ -19,7 +19,7 @@
 | Fault reporter | Fault Reporter | Optional |
 | Platform Super Administrator | Runs the platform; not a member role | Required |
 
-## Actions (73)
+## Actions (74)
 
 ✔ = allowed. Blank = refused.
 
@@ -149,6 +149,12 @@
 | `analytics.workload` | ✔ | ✔ |  |  |  |  |  |
 | `analytics.export` | ✔ | ✔ |  |  |  | ✔ |  |
 | `analytics.financial` | ✔ | ✔ |  |  |  | ✔ |  |
+
+### labour
+
+| Action | Org admin | Eng. manager | Technician | Inventory mgr | Dept head | Auditor | Fault reporter |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `labour.rates` | ✔ | ✔ |  |  |  |  |  |
 
 ### reports
 

@@ -35,6 +35,8 @@ export const REPORTS = [
   "governance",
   "lifecycle",
   "costs",
+  "department-spend",
+  "staff-effectiveness",
 ] as const;
 export type ReportName = (typeof REPORTS)[number];
 
@@ -47,6 +49,8 @@ export const REPORT_TITLES: Record<ReportName, string> = {
   governance: "Maintenance plan governance",
   lifecycle: "Equipment lifecycle and cost",
   costs: "Parts, external service and maintenance cost",
+  "department-spend": "Department spend by month",
+  "staff-effectiveness": "Staff effectiveness",
 };
 
 export const scheduleSchema = z.object({
