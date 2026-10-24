@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ExportFormats } from "@/components/analytics/ui";
 import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
 import { getRegisterFilterOptions, listAssets, listPendingDecommissions } from "@/server/services/assets";
@@ -101,14 +102,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
             >
               Scan barcode
             </Link>
-            {can(ctx, "asset.export") ? (
-              <a
-                href={exportHref}
-                className={`${linkButton} border-line-strong text-navy-900 hover:bg-surface-sunken bg-white`}
-              >
-                Export CSV
-              </a>
-            ) : null}
+            {can(ctx, "asset.export") ? <ExportFormats href={exportHref} label="Export register" /> : null}
             <Link
               href="/assets/catalog"
               className={`${linkButton} border-line-strong text-navy-900 hover:bg-surface-sunken bg-white`}

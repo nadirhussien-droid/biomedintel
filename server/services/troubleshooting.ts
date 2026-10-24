@@ -485,15 +485,24 @@ async function retrievePassages(
       content: string;
       specificity: number;
       matched: number;
+      score: number;
       code_hit: boolean;
     }[]
   >`
-    WITH q AS (SELECT ${lexemes}::text[] AS lex)
+    WITH q AS (SELECT ${lexemes}::text[] AS lex),
+    pool AS (SELECT c.tsv FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
+               AND c.version_id = d.current_version_id
+             WHERE d.review_status = 'APPROVED' AND d.status = 'ACTIVE' AND ${documentVisibleSql(ctx)}),
+    total AS (SELECT count(*)::float8 AS n FROM pool),
+    -- Rare words in the manuals weigh more than common ones (see knowledge search).
+    weights AS (SELECT l AS lex, ln((total.n + 1) / ((SELECT count(*) FROM pool p WHERE l = ANY (tsvector_to_array(p.tsv))) + 1)) + 0.1 AS weight
+                  FROM q CROSS JOIN LATERAL unnest(q.lex) AS l CROSS JOIN total)
     SELECT c.id AS chunk_id, c.document_id, c.version_id, d.title, c.page_from, c.heading, c.content,
       (SELECT coalesce(max(CASE WHEN t.model_id = ${asset.modelId}::uuid THEN 3 WHEN t.category_id = ${asset.model.categoryId}::uuid THEN 2
                                 WHEN t.manufacturer_id = ${asset.model.manufacturerId}::uuid THEN 1 ELSE 0 END), 0)
          FROM knowledge_targets t WHERE t.document_id = d.id)::int AS specificity,
       (SELECT count(*) FROM unnest(tsvector_to_array(c.tsv)) l WHERE l = ANY (q.lex))::int AS matched,
+      (SELECT coalesce(sum(w.weight), 0) FROM weights w WHERE w.lex = ANY (tsvector_to_array(c.tsv)))::float8 AS score,
       ${codePatterns.length ? Prisma.sql`(upper(c.content) LIKE ANY (ARRAY[${Prisma.join(codePatterns)}]))` : Prisma.sql`false`} AS code_hit
     FROM knowledge_chunks c
     JOIN knowledge_documents d ON d.id = c.document_id AND c.version_id = d.current_version_id
@@ -503,10 +512,14 @@ async function retrievePassages(
            OR EXISTS (SELECT 1 FROM knowledge_targets t WHERE t.document_id = d.id
                       AND (t.model_id = ${asset.modelId}::uuid OR t.category_id = ${asset.model.categoryId}::uuid
                            OR t.manufacturer_id = ${asset.model.manufacturerId}::uuid)))
-    ORDER BY code_hit DESC, specificity DESC, matched DESC, c.chunk_no
+    ORDER BY code_hit DESC, specificity DESC, score DESC, matched DESC, c.chunk_no
     LIMIT 40`;
+  // A passage must share at least two meaningful words with the fault, so a
+  // vague description does not pull in unrelated manuals. A short description
+  // with only one or two meaningful words (e.g. "fuse blown") needs one.
+  const needed = lexemes.length <= 2 ? 1 : 2;
   return rows
-    .filter((r) => r.code_hit || r.matched >= 2)
+    .filter((r) => r.code_hit || r.matched >= needed)
     .slice(0, MAX_PASSAGES)
     .map((r, i) => ({
       label: `S${i + 1}`,
@@ -588,7 +601,8 @@ export async function getSession(ctx: AccessContext, id: string) {
       ...suggestions.map((x) => x.feedbackById),
     ]);
     const settings = await tx.aiSettings.findUnique({ where: { organizationId: ctx.organization.id } });
-    const config = aiConfig();
+    const org = await tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } });
+    const config = aiConfig(org?.aiModel);
     const hazards = hazardFlags(
       s.faultDescription,
       s.symptoms,
@@ -838,12 +852,26 @@ async function usageCheck(tx: Tx, ctx: AccessContext, now: Date) {
   return null;
 }
 
+/** The model platform staff chose for this hospital, or null for the app default. */
+export async function organizationAiModel(ctx: AccessContext): Promise<string | null> {
+  const org = await withTenant(tenant(ctx), (tx) =>
+    tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } }),
+  );
+  return org?.aiModel ?? null;
+}
+
+/** AI configuration as this hospital sees it (its own model, else the app default). */
+export async function getEffectiveAiConfig(ctx: AccessContext) {
+  return aiConfig(await organizationAiModel(ctx));
+}
+
 export async function askAi(ctx: AccessContext, input: unknown, opts: { now?: Date } = {}): Promise<AskResult> {
   await requirePermission(ctx, "troubleshoot.work", { entityType: "troubleshooting_session" });
   const data = parseInput(askSchema, input);
   const now = opts.now ?? new Date();
-  const provider = getAiProvider();
-  const config = aiConfig();
+  const orgModel = await organizationAiModel(ctx);
+  const provider = getAiProvider(orgModel);
+  const config = aiConfig(orgModel);
 
   // 1. Checks and evidence, read inside the person's own RLS context.
   const prep = await withTenant(tenant(ctx), async (tx) => {
@@ -1110,7 +1138,24 @@ export async function getAiOverview(ctx: AccessContext, now = new Date()) {
       _sum: { inputTokens: true, outputTokens: true },
     });
     const names = settings?.changedById ? await peopleNames(tx, [settings.changedById]) : {};
-    return { settings, config: aiConfig(), limits: aiLimits(), byStatus, names, canChange: can(ctx, "ai.settings") };
+    const org = await tx.organization.findUnique({ where: { id: ctx.organization.id }, select: { aiModel: true } });
+    // Requests this month per model, so the hospital can see what was used where.
+    const byModel = await tx.aiRequest.groupBy({
+      by: ["model"],
+      where: { createdAt: { gte: month }, status: "SUCCEEDED" },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true },
+    });
+    return {
+      settings,
+      config: aiConfig(org?.aiModel),
+      hospitalModel: org?.aiModel ?? null,
+      byModel,
+      limits: aiLimits(),
+      byStatus,
+      names,
+      canChange: can(ctx, "ai.settings"),
+    };
   });
 }
 

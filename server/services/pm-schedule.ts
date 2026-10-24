@@ -28,7 +28,9 @@ import { withTenant, type Tx } from "../db/tenant";
 import { audit, auditStandalone } from "../audit/audit";
 import { can, requirePermission, type AccessContext } from "../authz/access";
 import { NotFoundError } from "../authz/errors";
-import { assetScopeWhere, csvCell } from "./assets";
+import { assetScopeWhere } from "./assets";
+import { tableCsv, type ExportDoc, type ExportFormat } from "../export/document";
+import { renderExport } from "../export/render";
 import { peopleNames } from "./work-order-core";
 import {
   addDays,
@@ -789,72 +791,87 @@ export async function getPmReport(ctx: AccessContext, rawQuery: unknown, opts: {
   });
 }
 
-/** CSV of every PM due date in the period (same scope and filters as the report). Audited. */
-export async function exportPmCsv(ctx: AccessContext, rawQuery: unknown, opts: { now?: Date } = {}) {
+const PM_EXPORT_COLUMNS = [
+  "Due date",
+  "Status",
+  "Completed on",
+  "On time",
+  "Asset ID",
+  "Asset",
+  "Hospital",
+  "Department",
+  "Location",
+  "Category",
+  "Plan",
+  "Type",
+  "Priority",
+  "Assigned to",
+  "Work order",
+];
+
+/** Every PM due date in the period as CSV, Excel or PDF (same scope and filters as the report). Audited. */
+export async function exportPm(ctx: AccessContext, rawQuery: unknown, format: ExportFormat, opts: { now?: Date } = {}) {
   await requirePermission(ctx, "pm.export", { entityType: "pm_report" });
   const r = reportQuerySchema.parse(rawQuery ?? {});
   const now = opts.now ?? new Date();
-  return withTenant(tenant(ctx), async (tx) => {
+  const { rows, from, to } = await withTenant(tenant(ctx), async (tx) => {
     const def = await defaultPeriod(ctx, tx, now);
     const from = r.from ?? def.from;
     const to = r.to ?? def.to;
     if (r.hospital && !ctx.hospitals.some((h) => h.id === r.hospital)) throw new NotFoundError("Hospital");
     const q = scheduleQuerySchema.parse({ view: "all", from, to, hospital: r.hospital, sort: "due", dir: "asc" });
-    const { rows } = await querySchedule(ctx, tx, q, { take: 20_000, skip: 0 }, now);
+    const { rows: found } = await querySchedule(ctx, tx, q, { take: 20_000, skip: 0 }, now);
     const names = await peopleNames(
       tx,
-      rows.map((x) => x.assignee),
+      found.map((x) => x.assignee),
     );
-    const items = present(rows, names);
-    const header = [
-      "Due date",
-      "Status",
-      "Completed on",
-      "On time",
-      "Asset ID",
-      "Asset",
-      "Hospital",
-      "Department",
-      "Location",
-      "Category",
-      "Plan",
-      "Type",
-      "Priority",
-      "Assigned to",
-      "Work order",
-    ];
-    const lines = [header.map(csvCell).join(",")];
-    for (const i of items) {
-      lines.push(
-        [
-          i.dueOn,
-          i.state === "overdue" ? `${i.statusLabel} (overdue)` : i.statusLabel,
-          i.completedOn ?? "",
-          i.on_time === null ? "" : i.on_time ? "Yes" : "No",
-          i.asset_tag,
-          i.asset_name,
-          i.hospital_code,
-          i.department_name,
-          i.location_name ?? "",
-          i.category_name,
-          i.plan_name,
-          i.work_type,
-          i.priority,
-          i.assigneeName ?? "",
-          i.wo_number ?? "",
-        ]
-          .map((v) => csvCell(String(v)))
-          .join(","),
-      );
-    }
-    await audit(tx, {
+    const rows = present(found, names).map((i) => [
+      i.dueOn,
+      i.state === "overdue" ? `${i.statusLabel} (overdue)` : i.statusLabel,
+      i.completedOn ?? "",
+      i.on_time === null ? "" : i.on_time ? "Yes" : "No",
+      i.asset_tag,
+      i.asset_name,
+      i.hospital_code,
+      i.department_name,
+      i.location_name ?? "",
+      i.category_name,
+      i.plan_name,
+      i.work_type,
+      i.priority,
+      i.assigneeName ?? "",
+      i.wo_number ?? "",
+    ]);
+    return { rows, from, to };
+  });
+  const hospital = r.hospital ? (ctx.hospitals.find((h) => h.id === r.hospital)?.name ?? "") : "All your hospitals";
+  const doc: ExportDoc = {
+    title: "Planned maintenance due dates",
+    organization: ctx.organization.name,
+    meta: [
+      ["Generated (UTC)", now.toISOString()],
+      ["Period", `${from} to ${to}`],
+      ["Hospital", hospital],
+      ["Due dates", String(rows.length)],
+    ],
+    sections: [{ columns: PM_EXPORT_COLUMNS, rows }],
+  };
+  const file = await renderExport(ctx, doc, format, { csv: () => tableCsv(PM_EXPORT_COLUMNS, rows), now });
+  await withTenant(tenant(ctx), (tx) =>
+    audit(tx, {
       organizationId: ctx.organization.id,
       actorUserId: ctx.user.id,
       action: "pm.report_exported",
       entityType: "pm_report",
-      metadata: { from, to, hospital: r.hospital ?? null, rows: items.length },
+      metadata: { from, to, hospital: r.hospital ?? null, rows: rows.length, format },
       request: ctx.request,
-    });
-    return { csv: lines.join("\r\n"), rows: items.length, from, to };
-  });
+    }),
+  );
+  return { ...file, rows: rows.length, from, to };
+}
+
+/** CSV of every PM due date in the period (kept for existing callers). */
+export async function exportPmCsv(ctx: AccessContext, rawQuery: unknown, opts: { now?: Date } = {}) {
+  const r = await exportPm(ctx, rawQuery, "csv", opts);
+  return { csv: r.body.toString(), rows: r.rows, from: r.from, to: r.to };
 }

@@ -12,6 +12,7 @@ import {
   BarTable,
   Definitions,
   Empty,
+  ExportFormats,
   ExportLink,
   Pager,
   ToneTag,
@@ -74,15 +75,9 @@ export default async function PmCompliancePage({ searchParams }: { searchParams:
         actions={
           can(ctx, "analytics.export") ? (
             <div className="flex flex-wrap gap-2">
-              <ExportLink report="pm-compliance" query={query} label="Export summary (CSV)" />
+              <ExportLink report="pm-compliance" query={query} label="Export summary" />
               {can(ctx, "pm.export") ? (
-                <a
-                  href={`/maintenance/reports/export?${detail.toString()}`}
-                  download
-                  className="border-line-strong text-navy-900 inline-flex min-h-11 items-center justify-center rounded-md border bg-white px-4 text-sm font-semibold"
-                >
-                  Export each due date (CSV)
-                </a>
+                <ExportFormats href={`/maintenance/reports/export?${detail.toString()}`} label="Export each due date" />
               ) : null}
             </div>
           ) : null

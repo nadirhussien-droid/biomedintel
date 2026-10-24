@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { getRequestMeta, requirePlatformAdmin } from "@/server/auth/session";
 import { runAction, type ActionResult } from "@/server/actions/result";
-import { createOrganization } from "@/server/services/platform";
+import { createOrganization, setOrganizationAiModel } from "@/server/services/platform";
 
 const str = (form: FormData, key: string) => {
   const v = form.get(key);
@@ -34,4 +34,16 @@ export async function createOrganizationAction(
   return result.ok
     ? { ok: true, message: result.message, data: { temporaryPassword: result.data?.temporaryPassword ?? null } }
     : result;
+}
+
+export async function setAiModelAction(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const user = await requirePlatformAdmin();
+  const request = await getRequestMeta();
+  const result = await runAction(
+    () =>
+      setOrganizationAiModel(user, { organizationId: str(form, "organizationId"), model: str(form, "model") }, request),
+    "AI model saved. It applies to the next AI request.",
+  );
+  if (result.ok) revalidatePath("/platform");
+  return result.ok ? { ok: true, message: result.message } : result;
 }

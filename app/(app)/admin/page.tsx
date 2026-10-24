@@ -4,9 +4,15 @@ import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
 import { ROLE_LABELS, MEMBERSHIP_ROLES } from "@/server/authz/roles";
 import { listAuditLogs, listHospitals, listMembers } from "@/server/services/organization-admin";
+import { getLogoInfo } from "@/server/services/organization-logo";
+import { listProblemReports } from "@/server/services/problem-reports";
+import { PROBLEM_KIND_LABELS } from "@/lib/validation/problem-reports";
+import { resolveProblemAction } from "../help/actions";
+import { Button } from "@/components/ui/button";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { archiveDepartmentAction, archiveHospitalAction } from "./actions";
+import { LogoForm } from "./logo-form";
 import { AddMemberForm, ChangeRoleForm, CreateDepartmentForm, CreateHospitalForm, ResetMfaForm } from "./forms";
 
 export const metadata: Metadata = { title: "User and Organization Administration" };
@@ -18,10 +24,14 @@ export default async function AdminPage() {
   if (!can(ctx, "admin.view")) redirect("/dashboard");
 
   const manage = can(ctx, "hospital.create");
-  const [hospitals, members, auditLogs] = await Promise.all([
+  const manageLogo = can(ctx, "logo.manage");
+  const manageFeedback = can(ctx, "feedback.manage");
+  const [hospitals, members, auditLogs, logo, problems] = await Promise.all([
     listHospitals(ctx),
     listMembers(ctx),
     listAuditLogs(ctx, 40),
+    manageLogo ? getLogoInfo(ctx) : Promise.resolve(null),
+    manageFeedback ? listProblemReports(ctx) : Promise.resolve(null),
   ]);
   const roleOptions = MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
   const hospitalOptions = hospitals.map((h) => ({
@@ -161,6 +171,71 @@ export default async function AdminPage() {
           </table>
         </div>
       </Card>
+
+      {problems ? (
+        <Card>
+          <div id="problem-reports" className="scroll-mt-6">
+            <CardTitle
+              action={
+                problems.open ? <Badge tone="warn">{problems.open} open</Badge> : <Badge tone="ok">None open</Badge>
+              }
+            >
+              Problem reports
+            </CardTitle>
+          </div>
+          <p className="text-ink-muted mb-3 text-sm">
+            Sent by your staff from the Help panel. Open reports are listed first; resolved reports are kept.
+          </p>
+          {problems.rows.length === 0 ? (
+            <p className="text-sm">No reports yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {problems.rows.map((r) => (
+                <li key={r.id} className="border-line flex flex-col gap-2 rounded-md border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={r.status === "OPEN" ? "warn" : "neutral"}>
+                      {r.status === "OPEN" ? "Open" : "Resolved"}
+                    </Badge>
+                    <span className="text-sm font-semibold">
+                      {PROBLEM_KIND_LABELS[r.kind as keyof typeof PROBLEM_KIND_LABELS] ?? r.kind}
+                    </span>
+                    <span className="text-ink-muted text-xs">
+                      {problems.names[r.reporterId] ?? "Unknown user"} ·{" "}
+                      {ROLE_LABELS[r.reporterRole as keyof typeof ROLE_LABELS] ?? r.reporterRole} ·{" "}
+                      {dateTime.format(r.createdAt)} UTC · page <code>{r.pagePath}</code>
+                    </span>
+                  </div>
+                  <p className="text-sm whitespace-pre-line">{r.message}</p>
+                  {r.status === "OPEN" ? (
+                    <form action={resolveProblemAction}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <Button type="submit" variant="secondary">
+                        Mark as resolved
+                      </Button>
+                    </form>
+                  ) : (
+                    <p className="text-ink-muted text-xs">
+                      Resolved by {r.resolvedById ? (problems.names[r.resolvedById] ?? "Unknown user") : "—"}
+                      {r.resolvedAt ? ` · ${dateTime.format(r.resolvedAt)} UTC` : ""}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      ) : null}
+
+      {manageLogo ? (
+        <Card>
+          <CardTitle>Hospital logo (optional)</CardTitle>
+          <p className="text-ink-muted mb-3 text-sm">
+            When you upload a logo it is printed at the top of every job sheet, beside your organisation name. Without
+            one, job sheets show the name only.
+          </p>
+          <LogoForm hasLogo={!!logo} version={logo?.sha256.slice(0, 12) ?? null} />
+        </Card>
+      ) : null}
 
       <Card>
         <CardTitle

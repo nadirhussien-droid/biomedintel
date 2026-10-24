@@ -47,6 +47,19 @@ export const PERMISSIONS = {
   // Stage 6: MFA recovery for a member who lost authenticator AND backup codes.
   "member.resetMfa": ["ORG_ADMIN"],
   "audit.view": ["ORG_ADMIN", "AUDITOR"],
+  // Optional hospital logo printed on job sheets (set or remove).
+  "logo.manage": ["ORG_ADMIN"],
+  // "Report a problem" in the Help panel: anyone sends; the Organisation Administrator reads and resolves.
+  "feedback.submit": [
+    "ORG_ADMIN",
+    "ENGINEERING_MANAGER",
+    "TECHNICIAN",
+    "INVENTORY_MANAGER",
+    "DEPARTMENT_HEAD",
+    "AUDITOR",
+    "FAULT_REPORTER",
+  ],
+  "feedback.manage": ["ORG_ADMIN"],
 
   // Equipment assets (Stage 4)
   "asset.view": [

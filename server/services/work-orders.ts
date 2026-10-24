@@ -43,6 +43,7 @@ import { pmCompleteSchema, type ChecklistItem, DO_NOT_USE_LABEL } from "@/lib/va
 import {
   assignSchema,
   completeSchema,
+  editCompletedJobSchema,
   holdSchema,
   logWorkSchema,
   MAX_PHOTO_BYTES,
@@ -361,12 +362,20 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
     const isAssignee = wo.assignedToId === ctx.user.id && can(ctx, "workorder.work");
     const open = OPEN.includes(wo.status);
     const candidates = manage && open ? await assigneeCandidates(tx, wo) : [];
-    const totalMinutes = wo.tasks.reduce((sum, t) => sum + t.minutes, 0);
+    // The work log shows each line as last corrected; earlier versions stay in the history.
+    const tasks = effectiveTasks(wo.tasks);
+    const totalMinutes = tasks.reduce((sum, t) => sum + t.minutes, 0);
+    const workedOnIt = wo.tasks.some((t) => t.performedById === ctx.user.id);
+    const mayEdit =
+      wo.status === "COMPLETED" &&
+      can(ctx, "workorder.work") &&
+      (wo.assignedToId === ctx.user.id || wo.completedById === ctx.user.id || workedOnIt);
     const checklist = Array.isArray(wo.checklist) ? (wo.checklist as unknown as ChecklistItem[]) : null;
     // Instructions come from the approved plan version this job was made from.
     const snapshot = (wo.planRevision?.snapshot ?? null) as { instructions?: string | null } | null;
     return {
       ...wo,
+      tasks,
       checklistItems: checklist,
       planned: checklist !== null,
       instructions: snapshot?.instructions ?? null,
@@ -391,6 +400,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
         // Repair and retest jobs of a safety hold cannot be cancelled: the hold needs them.
         cancel: open && !wo.safetyHoldId && (manage || (wo.reportedById === ctx.user.id && wo.status === "REQUESTED")),
         reopen: manage && wo.status === "COMPLETED",
+        editCompleted: mayEdit,
         review: manage && wo.status === "COMPLETED" && wo.reviewedAt === null && wo.completedById !== ctx.user.id,
       },
     };
@@ -998,6 +1008,137 @@ export async function reviewWorkOrder(ctx: AccessContext, input: unknown) {
     if (r.count === 0) throw new ValidationError("This job has already been reviewed.");
     await addEvent(tx, ctx, wo.id, "REVIEWED");
     await auditWO(tx, ctx, "workorder.reviewed", wo, { number: wo.number });
+  });
+}
+
+// ─── Editing a completed job ─────────────────────────────────────────────────
+//
+// Decision of 24 Oct 2026 (Nadir): a completed job has one Edit button. The
+// technician, biomedical engineer or manager who worked on the job (assigned
+// to it, signed it off, or logged work on it) can fix mistakes in the
+// diagnosis, the work done, the fault category and the work log. Nothing is
+// shown on the job page or the printed job sheet about the edit.
+//
+// Kept on purpose (not visible to technicians): the earlier values in
+// work_order_corrections and an audit log entry, so an audit can still see what
+// a signed record said. Safety test results, the outcome, the declaration and
+// the device status cannot be edited: a failed test must go through the
+// safety hold and retest; a manager reopens the job if those are wrong.
+
+type TaskRow = {
+  id: string;
+  description: string;
+  minutes: number;
+  performedById: string;
+  createdAt: Date;
+  correctsTaskId: string | null;
+};
+
+/** Lines of the work log as last edited, in the order they were first logged. */
+export function effectiveTasks<T extends TaskRow>(rows: T[]) {
+  const replaced = new Set(rows.map((r) => r.correctsTaskId).filter((x): x is string => Boolean(x)));
+  return rows.filter((r) => !replaced.has(r.id)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+/** The people who worked on the job: assigned to it, signed it off, or logged work on it. */
+async function requireWorkedOnJob(ctx: AccessContext, tx: Tx, wo: CoreWO, action: string) {
+  const worked =
+    can(ctx, "workorder.work") &&
+    (wo.assignedToId === ctx.user.id ||
+      wo.completedById === ctx.user.id ||
+      (await tx.workOrderTask.count({ where: { workOrderId: wo.id, performedById: ctx.user.id } })) > 0);
+  if (!worked) {
+    await denied(ctx, wo.id, action, "did_not_work_on_this_job");
+    throw new AuthorizationError(action);
+  }
+}
+
+export async function editCompletedJob(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "workorder.work", { entityType: "work_order" });
+  const data = parseInput(editCompletedJobSchema, input);
+  return withTenant(tenant(ctx), async (tx) => {
+    const wo = await loadScoped(ctx, tx, data.id, "workorder.edit_completed");
+    expectStatus(wo, ["COMPLETED"], "Only a completed job is edited this way.");
+    await requireWorkedOnJob(ctx, tx, wo, "workorder.edit_completed");
+    const job = await tx.workOrder.findUniqueOrThrow({
+      where: { id: wo.id },
+      select: { type: true, diagnosis: true, resolution: true, failureCategory: true },
+    });
+    const isRepair = job.type === "CORRECTIVE";
+    const newCategory = isRepair ? data.failureCategory : null;
+    const changes: {
+      field: "DIAGNOSIS" | "RESOLUTION" | "FAILURE_CATEGORY";
+      oldValue: string | null;
+      newValue: string | null;
+    }[] = [];
+    if (data.diagnosis !== (job.diagnosis ?? "")) {
+      changes.push({ field: "DIAGNOSIS", oldValue: job.diagnosis, newValue: data.diagnosis });
+    }
+    if (data.resolution !== (job.resolution ?? "")) {
+      changes.push({ field: "RESOLUTION", oldValue: job.resolution, newValue: data.resolution });
+    }
+    if (isRepair && newCategory !== job.failureCategory) {
+      changes.push({ field: "FAILURE_CATEGORY", oldValue: job.failureCategory, newValue: newCategory });
+    }
+
+    // Work log lines: only current lines of this job can be edited.
+    const rows = await tx.workOrderTask.findMany({ where: { workOrderId: wo.id } });
+    const current = new Map(effectiveTasks(rows).map((t) => [t.id, t]));
+    const lineEdits = [];
+    for (const l of data.lines) {
+      const line = current.get(l.taskId);
+      if (!line)
+        throw new ValidationError("The work log changed while you were editing. Reload the page and try again.");
+      if (line.description !== l.description || line.minutes !== l.minutes) lineEdits.push({ line, edit: l });
+    }
+    if (changes.length === 0 && lineEdits.length === 0) {
+      throw new ValidationError("Nothing was changed.");
+    }
+
+    if (changes.length) {
+      await tx.workOrder.update({
+        where: { id: wo.id },
+        data: {
+          diagnosis: data.diagnosis,
+          resolution: data.resolution,
+          ...(isRepair ? { failureCategory: newCategory } : {}),
+          updatedById: ctx.user.id,
+        },
+      });
+      await tx.workOrderCorrection.createMany({
+        data: changes.map((c) => ({
+          organizationId: ctx.organization.id,
+          workOrderId: wo.id,
+          field: c.field,
+          oldValue: c.oldValue,
+          newValue: c.newValue,
+          reason: data.reason,
+          correctedById: ctx.user.id,
+        })),
+      });
+    }
+    for (const { line, edit } of lineEdits) {
+      await tx.workOrderTask.create({
+        data: {
+          organizationId: ctx.organization.id,
+          workOrderId: wo.id,
+          description: edit.description,
+          minutes: edit.minutes,
+          performedById: line.performedById, // still credited to the person who did the work
+          correctsTaskId: line.id,
+          correctedById: ctx.user.id,
+          correctionReason: data.reason,
+          createdAt: line.createdAt, // keeps its place in the list and in reports by period
+        },
+      });
+    }
+    // Audit only (not shown on the job): which parts changed, never the text.
+    await auditWO(tx, ctx, "workorder.edited_after_completion", wo, {
+      number: wo.number,
+      fields: changes.map((c) => c.field),
+      workLogLines: lineEdits.length,
+    });
+    return { fields: changes.length, lines: lineEdits.length };
   });
 }
 

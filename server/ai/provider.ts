@@ -54,8 +54,12 @@ export function aiLimits() {
   };
 }
 
-/** What is configured (never the key itself). */
-export function aiConfig(): AiConfig {
+/**
+ * What is configured (never the key itself).
+ * `orgModel` is the model platform staff chose for one hospital; when set it
+ * replaces the app default (AI_MODEL) for that hospital only.
+ */
+export function aiConfig(orgModel?: string | null): AiConfig {
   const provider = (process.env.AI_PROVIDER ?? "").trim().toLowerCase() || null;
   if (!provider)
     return {
@@ -66,11 +70,16 @@ export function aiConfig(): AiConfig {
     };
   if (provider === "mock") return { provider, model: "mock-deterministic-1", configured: true, problem: null };
   if (provider === "anthropic") {
-    const model = (process.env.AI_MODEL ?? "").trim();
+    const model = (orgModel ?? "").trim() || (process.env.AI_MODEL ?? "").trim();
     if (!(process.env.ANTHROPIC_API_KEY ?? "").trim())
       return { provider, model: model || null, configured: false, problem: "ANTHROPIC_API_KEY is not set." };
     if (!/^[a-z0-9][a-z0-9.\-]{2,80}$/.test(model))
-      return { provider, model: null, configured: false, problem: "AI_MODEL is not set to a valid model name." };
+      return {
+        provider,
+        model: null,
+        configured: false,
+        problem: "No valid AI model is set (AI_MODEL, or the hospital model).",
+      };
     return { provider, model, configured: true, problem: null };
   }
   return { provider, model: null, configured: false, problem: `Unknown AI_PROVIDER "${provider.slice(0, 20)}".` };
@@ -197,9 +206,9 @@ export function setAiProviderForTests(p: AiProvider | null) {
 }
 
 /** The configured provider, or null when AI is not configured. */
-export function getAiProvider(): AiProvider | null {
+export function getAiProvider(orgModel?: string | null): AiProvider | null {
   if (testOverride) return testOverride;
-  const c = aiConfig();
+  const c = aiConfig(orgModel);
   if (!c.configured) return null;
   if (c.provider === "mock") return mockProvider;
   if (c.provider === "anthropic" && c.model) return anthropicProvider(c.model);

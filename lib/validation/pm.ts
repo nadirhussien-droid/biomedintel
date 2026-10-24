@@ -12,11 +12,12 @@ export const PLAN_STATUS_LABELS: Record<(typeof PLAN_STATUSES)[number], string> 
   ARCHIVED: "Archived",
 };
 
-export const TARGET_KINDS = ["ASSET", "MODEL", "CATEGORY"] as const;
+export const TARGET_KINDS = ["ASSET", "MODEL", "CATEGORY", "DEPARTMENT"] as const;
 export const TARGET_LABELS: Record<(typeof TARGET_KINDS)[number], string> = {
   ASSET: "One asset",
   MODEL: "Every asset of one model",
   CATEGORY: "Every asset in one category",
+  DEPARTMENT: "Every asset in one department",
 };
 
 export const PLAN_WORK_TYPES = ["PREVENTIVE", "SAFETY_TEST", "INSPECTION", "CALIBRATION"] as const;
@@ -229,6 +230,20 @@ export const planSchema = z
           d.intervalSource === "MANUFACTURER"
             ? "Name the manufacturer document, e.g. service manual and section"
             : "Name the requirement, e.g. the regulation or policy and clause",
+      });
+    }
+    if (d.targetKind === "DEPARTMENT" && d.intervalSource === "MANUFACTURER") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["intervalSource"],
+        message: "A department contains different makes: use a model plan for a manufacturer interval",
+      });
+    }
+    if (d.targetKind === "DEPARTMENT" && !d.hospitalId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["hospitalId"],
+        message: "Choose the hospital first: a department belongs to one hospital",
       });
     }
     if (d.targetKind === "CATEGORY" && d.intervalSource === "MANUFACTURER") {

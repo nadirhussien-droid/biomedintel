@@ -34,6 +34,7 @@ import {
   AssignForm,
   CancelForm,
   CompleteForm,
+  EditCompletedJob,
   HoldForm,
   LogWorkForm,
   NoteForm,
@@ -89,6 +90,7 @@ const SAVED: Record<string, string> = {
   "signed-off": "Job signed off. The reporter has been notified.",
   reviewed: "Marked as reviewed.",
   reopened: "Job reopened. The technician has been notified.",
+  edited: "Changes saved.",
   cancelled: "Job cancelled. The device status was not changed: confirm separately that it is safe to use.",
 };
 
@@ -451,6 +453,17 @@ export default async function WorkOrderPage({
             </h3>
             <p className="mt-1 text-sm whitespace-pre-line">{wo.resolution}</p>
           </div>
+          {a.editCompleted ? (
+            <EditCompletedJob
+              id={wo.id}
+              planned={wo.planned}
+              isRepair={wo.type === "CORRECTIVE"}
+              diagnosis={wo.diagnosis ?? ""}
+              resolution={wo.resolution ?? ""}
+              failureCategory={wo.failureCategory}
+              lines={wo.tasks.map((t) => ({ id: t.id, description: t.description, minutes: t.minutes }))}
+            />
+          ) : null}
           <div className="grid gap-6 lg:grid-cols-2">
             {a.review ? <ReviewForm id={wo.id} /> : null}
             {a.reopen ? <ReopenForm id={wo.id} /> : null}

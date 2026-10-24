@@ -174,16 +174,32 @@ const linkButton = "inline-flex min-h-11 items-center justify-center rounded-md 
  * CSV download. Deliberately a plain <a>, never a prefetching <Link>:
  * viewing a page must never trigger an (audited) export.
  */
-export function ExportLink({ report, query, label = "Export CSV" }: { report: string; query: string; label?: string }) {
+/**
+ * Download buttons for one export: Excel and PDF for reading and sharing, CSV
+ * for moving data into other systems. Plain <a download> links (never a
+ * prefetching <Link>); each link names its export for screen readers.
+ */
+export function ExportFormats({ href, label = "Export" }: { href: string; label?: string }) {
+  const join = href.includes("?") ? "&" : "?";
+  const button = `${linkButton} border-line-strong text-navy-900 bg-white`;
   return (
-    <a
-      href={`/reports/export?report=${report}${query ? `&${query}` : ""}`}
-      download
-      className={`${linkButton} border-line-strong text-navy-900 bg-white`}
-    >
-      {label}
-    </a>
+    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-2">
+      <span className="text-ink-muted text-sm font-semibold">{label}:</span>
+      <a href={`${href}${join}format=xlsx`} download className={button} aria-label={`${label} as Excel`}>
+        Excel
+      </a>
+      <a href={`${href}${join}format=pdf`} download className={button} aria-label={`${label} as PDF`}>
+        PDF
+      </a>
+      <a href={href} download className={button} aria-label={`${label} as CSV`}>
+        CSV
+      </a>
+    </div>
   );
+}
+
+export function ExportLink({ report, query, label = "Export" }: { report: string; query: string; label?: string }) {
+  return <ExportFormats href={`/reports/export?report=${report}${query ? `&${query}` : ""}`} label={label} />;
 }
 
 export function Pager({ page, pageCount, href }: { page: number; pageCount: number; href: (page: number) => string }) {

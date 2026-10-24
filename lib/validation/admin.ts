@@ -2,6 +2,7 @@
 // The same schemas check data on the server; forms may reuse them for hints,
 // but only the server-side check counts.
 import { z } from "zod";
+import { AI_MODEL_CHOICES } from "@/lib/ai/models";
 
 const uuid = z.string().uuid("Invalid id");
 
@@ -104,6 +105,17 @@ export type CreateDepartmentInput = z.input<typeof createDepartmentSchema>;
 export type ChangeMemberRoleInput = z.input<typeof changeMemberRoleSchema>;
 export type AddMemberInput = z.input<typeof addMemberSchema>;
 export type CreateOrganizationInput = z.input<typeof createOrganizationSchema>;
+
+/** Platform staff choose the IntellAssist model for one hospital; empty means the app default. */
+export const setOrganizationAiModelSchema = z.object({
+  organizationId: uuid,
+  model: z
+    .string()
+    .trim()
+    .max(80)
+    .transform((v) => (v === "" || v === "default" ? null : v))
+    .refine((v) => v === null || AI_MODEL_CHOICES.some((m) => m.id === v), "Choose Haiku, Sonnet, Opus or the default"),
+});
 
 /** Stage 6: an administrator resets a member's authenticator after verifying who they are. */
 export const resetMfaSchema = z.object({

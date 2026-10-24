@@ -149,6 +149,21 @@ function applicabilitySql(q: {
   return parts.length ? Prisma.join(parts, " AND ") : Prisma.sql`TRUE`;
 }
 
+/**
+ * How telling each searched word is: rare words in the visible passages weigh
+ * more than common ones (inverse document frequency). "fuse" in one passage
+ * outranks "replace" in fifteen, so the right section comes first when a
+ * search has to fall back to "some of the words".
+ */
+function weightsCte(where: Prisma.Sql, text: string): Prisma.Sql {
+  return Prisma.sql`WITH q AS (SELECT DISTINCT unnest(tsvector_to_array(to_tsvector('english', ${text}))) AS lex),
+    pool AS (SELECT c.tsv FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
+               AND c.version_id = d.current_version_id WHERE ${where}),
+    total AS (SELECT count(*)::float8 AS n FROM pool),
+    weights AS (SELECT q.lex, ln((total.n + 1) / ((SELECT count(*) FROM pool p WHERE q.lex = ANY (tsvector_to_array(p.tsv))) + 1)) + 0.1 AS weight
+                  FROM q CROSS JOIN total)`;
+}
+
 export async function searchKnowledge(ctx: AccessContext, raw: unknown) {
   await requirePermission(ctx, "knowledge.view", { entityType: "knowledge_document" });
   const q = knowledgeQuerySchema.parse(raw ?? {});
@@ -161,9 +176,29 @@ export async function searchKnowledge(ctx: AccessContext, raw: unknown) {
     if (q.status !== "all") filters.push(Prisma.sql`d.status = ${q.status.toUpperCase()}::knowledge_status`);
     const where = Prisma.join(filters, " AND ");
     const text = q.q ? q.q.slice(0, 200) : null;
+    // Words are matched in their dictionary form ("fuses" finds "fuse"). First
+    // every word must appear; when nothing has them all (for example "fuse
+    // blown" against a manual that never says "blown"), passages with ANY of
+    // the words are shown instead, those with more of them first, and the page
+    // says so (partial = true).
+    let partial = false;
+    if (text) {
+      const like = `%${text.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+      const [{ hit, words }] = await tx.$queryRaw<{ hit: boolean; words: number | null }[]>`
+        SELECT EXISTS (
+                 SELECT 1 FROM knowledge_documents d WHERE ${where}
+                   AND (d.title ILIKE ${like} OR coalesce(d.summary, '') ILIKE ${like}
+                        OR EXISTS (SELECT 1 FROM knowledge_chunks c WHERE c.version_id = d.current_version_id
+                                     AND c.tsv @@ websearch_to_tsquery('english', ${text})))) AS hit,
+               array_length(tsvector_to_array(to_tsvector('english', ${text})), 1) AS words`;
+      partial = !hit && (words ?? 0) >= 2;
+    }
+    const tsq = partial
+      ? Prisma.sql`replace(plainto_tsquery('english', ${text})::text, '&', '|')::tsquery`
+      : Prisma.sql`websearch_to_tsquery('english', ${text})`;
     const textMatch = text
       ? Prisma.sql`AND (d.title ILIKE ${`%${text.replace(/[%_\\]/g, (c) => `\\${c}`)}%`} OR coalesce(d.summary, '') ILIKE ${`%${text.replace(/[%_\\]/g, (c) => `\\${c}`)}%`}
-          OR EXISTS (SELECT 1 FROM knowledge_chunks c WHERE c.version_id = d.current_version_id AND c.tsv @@ websearch_to_tsquery('english', ${text})))`
+          OR EXISTS (SELECT 1 FROM knowledge_chunks c WHERE c.version_id = d.current_version_id AND c.tsv @@ ${tsq}))`
       : Prisma.empty;
     const [{ total }] = await tx.$queryRaw<
       { total: bigint }[]
@@ -215,12 +250,13 @@ export async function searchKnowledge(ctx: AccessContext, raw: unknown) {
             rank: number;
           }[]
         >`
+          ${partial ? weightsCte(where, text!) : Prisma.empty}
           SELECT c.id, c.document_id, c.version_id, d.title, d.review_status::text, d.status::text, c.page_from, c.heading,
-                 ts_headline('english', c.content, websearch_to_tsquery('english', ${text}),
+                 ts_headline('english', c.content, ${tsq},
                    ${`StartSel=${HIT_START}, StopSel=${HIT_END}, MaxFragments=2, MaxWords=35, MinWords=12, FragmentDelimiter= … `}) AS snippet,
-                 ts_rank_cd(c.tsv, websearch_to_tsquery('english', ${text})) AS rank
+                 ${partial ? Prisma.sql`(SELECT coalesce(sum(w.weight), 0) FROM weights w WHERE w.lex = ANY (tsvector_to_array(c.tsv)))` : Prisma.sql`ts_rank_cd(c.tsv, ${tsq})`}::float8 AS rank
           FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id AND c.version_id = d.current_version_id
-          WHERE ${where} AND c.tsv @@ websearch_to_tsquery('english', ${text})
+          WHERE ${where} AND c.tsv @@ ${tsq}
           ORDER BY (d.review_status = 'APPROVED') DESC, rank DESC LIMIT 20`
       : [];
     // Documented error codes.
@@ -243,7 +279,7 @@ export async function searchKnowledge(ctx: AccessContext, raw: unknown) {
           WHERE k.archived_at IS NULL AND k.code_key = ${codeKey(codeText)} AND ${where}
           ORDER BY (d.review_status = 'APPROVED') DESC, k.code LIMIT 50`
       : [];
-    return { q, documents, total: Number(total), page, pageCount, passages, codes };
+    return { q, documents, total: Number(total), page, pageCount, passages, codes, partial };
   });
 }
 

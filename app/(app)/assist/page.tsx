@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
-import { listSessions } from "@/server/services/troubleshooting";
-import { aiConfig } from "@/server/ai/provider";
+import { getEffectiveAiConfig, listSessions } from "@/server/services/troubleshooting";
+
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardTitle } from "@/components/ui/card";
 import { InputField } from "@/components/ui/field";
@@ -34,7 +34,7 @@ export default async function AssistPage({ searchParams }: { searchParams: Searc
     );
   }
   const r = await listSessions(ctx, { status: first(sp.status), mine: first(sp.mine), page: first(sp.page) });
-  const config = aiConfig();
+  const config = await getEffectiveAiConfig(ctx);
   const href = (o: Record<string, string>) =>
     `/assist?${new URLSearchParams({ status: r.q.status, ...(r.q.mine ? { mine: "1" } : {}), ...o }).toString()}`;
   return (

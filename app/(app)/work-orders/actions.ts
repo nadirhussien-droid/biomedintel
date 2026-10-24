@@ -13,6 +13,7 @@ import {
   assignWorkOrder,
   cancelWorkOrder,
   completeWorkOrder,
+  editCompletedJob,
   holdWorkOrder,
   logWork,
   reopenWorkOrder,
@@ -196,6 +197,33 @@ export async function reopenAction(prev: WoFormState | null, form: FormData) {
     () => reopenWorkOrder(ctx, { id: str(form, "id"), reason: str(form, "reason") }),
     str(form, "id"),
     "reopened",
+    prev,
+  );
+}
+
+/** Edit a completed job: text, fault category and work log lines (one Edit button). */
+export async function editCompletedAction(prev: WoFormState | null, form: FormData) {
+  const ctx = await requireAccess();
+  const lines = form
+    .getAll("lineId")
+    .filter((v): v is string => typeof v === "string")
+    .map((taskId) => ({
+      taskId,
+      description: str(form, `line-${taskId}-description`),
+      minutes: str(form, `line-${taskId}-minutes`),
+    }));
+  return runThenShow(
+    () =>
+      editCompletedJob(ctx, {
+        id: str(form, "id"),
+        diagnosis: str(form, "diagnosis"),
+        resolution: str(form, "resolution"),
+        failureCategory: str(form, "failureCategory"),
+        lines,
+        reason: str(form, "reason"),
+      }),
+    str(form, "id"),
+    "edited",
     prev,
   );
 }

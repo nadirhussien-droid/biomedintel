@@ -165,6 +165,36 @@ export const completeSchema = z
     }
   });
 
+/**
+ * Edit a completed job (one Edit button). Text, fault category and work log
+ * lines only; the outcome, checks, safety results and declaration cannot change.
+ */
+export const editCompletedJobSchema = z.object({
+  id: uuid,
+  diagnosis: text(3, 2000, "Diagnosis"),
+  resolution: text(3, 2000, "Work done and result"),
+  failureCategory: z.preprocess(
+    (v) => (v === undefined || v === "" ? null : v),
+    z.enum(FAILURE_CATEGORIES, { message: "Choose a listed fault category" }).nullable(),
+  ),
+  lines: z
+    .array(
+      z.object({
+        taskId: uuid,
+        description: text(2, 1000, "Work done"),
+        minutes: z.coerce
+          .number({ message: "Enter the time in minutes" })
+          .int("Whole minutes only")
+          .min(1, "At least 1 minute")
+          .max(1440, "At most 1,440 minutes (24 hours) per entry"),
+      }),
+    )
+    .max(200)
+    .default([]),
+  /** Optional: kept with the earlier values, never shown on the job. */
+  reason: z.preprocess(blankToNull, text(1, 500, "Note").nullable()).default(null),
+});
+
 export const reasonSchema = z.object({ id: uuid, reason: text(3, 500, "Reason") });
 
 export const workOrderQuerySchema = z.object({

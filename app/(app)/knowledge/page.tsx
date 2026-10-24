@@ -206,7 +206,13 @@ export default async function KnowledgePage({ searchParams }: { searchParams: Se
 
       {r.passages.length ? (
         <Card>
-          <CardTitle>Matching passages</CardTitle>
+          <CardTitle>{r.partial ? "Passages with some of your words" : "Matching passages"}</CardTitle>
+          {r.partial ? (
+            <p role="status" className="bg-info-bg text-info mb-3 rounded-md px-3 py-2 text-sm">
+              No passage contains all of the words in &ldquo;{q.q}&rdquo;. These contain some of them, best match first.
+              Check that each one really applies.
+            </p>
+          ) : null}
           <ul className="flex flex-col gap-3 text-sm">
             {r.passages.map((p) => (
               <li key={p.id} className="border-line rounded-md border p-3">

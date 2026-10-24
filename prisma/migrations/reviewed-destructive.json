@@ -18,5 +18,10 @@
     "reason": "Replaces the lifecycle_events_decision_recorded constraint to allow RECORDED events, in the same migration (drop then add, stricter companion checks added).",
     "approvedBy": "Stage 10 review",
     "date": "2026-10-16"
+  },
+  "20261024000200_plan_target_department": {
+    "reason": "Replaces the maintenance_plans_target constraint with an extended one in the same migration (drop then add) so a plan can also target a department. The new rule is at least as strict: exactly one target, and a department plan must name its hospital. No existing plan changes.",
+    "approvedBy": "Nadir (24 Oct 2026): requested the new plan option and confirmed the constraint replacement before deployment.",
+    "date": "2026-10-24"
   }
 }

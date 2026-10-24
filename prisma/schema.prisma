@@ -188,6 +188,7 @@ enum PlanTargetKind {
   ASSET
   MODEL
   CATEGORY
+  DEPARTMENT
 
   @@map("plan_target_kind")
 }
@@ -312,6 +313,8 @@ model Organization {
   slug       String             @unique
   country    String?            @db.Char(2) // ISO 3166-1 alpha-2, e.g. "KE"
   status     OrganizationStatus @default(ACTIVE)
+  /// IntellAssist model for this hospital, set by platform staff only. Null = app default (AI_MODEL).
+  aiModel    String?            @map("ai_model")
   archivedAt DateTime?          @map("archived_at") @db.Timestamptz(6)
   createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -331,7 +334,10 @@ model Organization {
   workOrders          WorkOrder[]
   workOrderEvents     WorkOrderEvent[]
   workOrderTasks      WorkOrderTask[]
+  workOrderCorrections WorkOrderCorrection[]
   attachments         Attachment[]
+  logos               OrganizationLogo[]
+  problemReports      ProblemReport[]
   downtimeEvents      DowntimeEvent[]
   notifications       Notification[]
   workOrderCounters   WorkOrderCounter[]
@@ -433,6 +439,7 @@ model Department {
   assets       Asset[]
   workOrders   WorkOrder[]
   tsSessions   TroubleshootingSession[]
+  plans        MaintenancePlan[]
 
   @@unique([organizationId, hospitalId, code])
   @@unique([organizationId, id])
@@ -780,6 +787,7 @@ model WorkOrder {
   department       Department               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
   events           WorkOrderEvent[]
   tasks            WorkOrderTask[]
+  corrections      WorkOrderCorrection[]
   attachments      Attachment[]
   downtime         DowntimeEvent[]
   statusChanges    AssetStatusHistory[]
@@ -848,13 +856,39 @@ model WorkOrderTask {
   description    String
   minutes        Int
   performedById  String   @map("performed_by")
+  /// A correction: this line replaces the line it points at (which is kept).
+  correctsTaskId   String?  @map("corrects_task_id") @db.Uuid
+  correctedById    String?  @map("corrected_by")
+  correctionReason String?  @map("correction_reason")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder       @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  corrects     WorkOrderTask?  @relation("TaskCorrection", fields: [correctsTaskId], references: [id], onDelete: Restrict)
+  replacedBy   WorkOrderTask[] @relation("TaskCorrection")
+
+  @@index([organizationId, workOrderId, createdAt])
+  @@map("work_order_tasks")
+}
+
+/// One edit to a completed job (diagnosis, work done or fault category).
+/// Append-only: the old value is kept here (not shown on the job).
+model WorkOrderCorrection {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  workOrderId    String   @map("work_order_id") @db.Uuid
+  field          String // DIAGNOSIS, RESOLUTION, FAILURE_CATEGORY
+  oldValue       String?  @map("old_value")
+  newValue       String?  @map("new_value")
+  reason         String?
+  correctedById  String   @map("corrected_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
 
-  @@index([organizationId, workOrderId, createdAt])
-  @@map("work_order_tasks")
+  @@index([organizationId, workOrderId, createdAt], map: "work_order_corrections_job_idx")
+  @@map("work_order_corrections")
 }
 
 /// A photo on a work order. Stored in the database for now (decision of
@@ -948,6 +982,8 @@ model MaintenancePlan {
   assetId              String?               @map("asset_id") @db.Uuid
   modelId              String?               @map("model_id") @db.Uuid
   categoryId           String?               @map("category_id") @db.Uuid
+  /// Plan applies to every asset in this department (requires hospital_id).
+  departmentId         String?               @map("department_id") @db.Uuid
   intervalCount        Int                   @map("interval_count")
   intervalUnit         IntervalUnit          @map("interval_unit")
   intervalSource       IntervalSource        @map("interval_source")
@@ -989,6 +1025,7 @@ model MaintenancePlan {
   asset            Asset?                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
   model            EquipmentModel?           @relation(fields: [organizationId, modelId], references: [organizationId, id], onDelete: Restrict)
   category         EquipmentCategory?        @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  department       Department?               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
   approvedRevision MaintenancePlanRevision?  @relation("PlanApprovedRevision", fields: [organizationId, approvedRevisionId], references: [organizationId, id], onDelete: Restrict)
   revisions        MaintenancePlanRevision[] @relation("PlanRevisions")
   schedules        PmSchedule[]
@@ -998,6 +1035,7 @@ model MaintenancePlan {
   @@unique([organizationId, approvedRevisionId])
   @@index([organizationId, status])
   @@index([organizationId, workType])
+  @@index([organizationId, departmentId])
   @@map("maintenance_plans")
 }
 
@@ -2451,4 +2489,48 @@ model AuthThrottle {
   updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   @@map("auth_throttles")
+}
+
+/// Optional hospital logo printed on job sheets. Append-only: the newest row is
+/// the current logo; a REMOVED row means no logo. PNG or JPEG, at most 1 MB.
+model OrganizationLogo {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  kind           String // "SET" or "REMOVED"
+  filename       String?
+  mime           String?
+  sizeBytes      Int?     @map("size_bytes")
+  sha256         String?
+  width          Int?
+  height         Int?
+  content        Bytes?
+  changedById    String   @map("changed_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("organization_logos")
+}
+
+/// "Report a problem" from the Help panel. Read and resolved by the
+/// Organisation Administrator. Never deleted.
+model ProblemReport {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  reporterId     String    @map("reporter_id")
+  reporterRole   String    @map("reporter_role")
+  kind           String // NOT_WORKING | UNCLEAR | SUGGESTION
+  message        String
+  pagePath       String    @map("page_path")
+  status         String    @default("OPEN") // OPEN | RESOLVED
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedById   String?   @map("resolved_by")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, reporterId, createdAt(sort: Desc)])
+  @@map("problem_reports")
 }
