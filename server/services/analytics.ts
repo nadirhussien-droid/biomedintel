@@ -15,6 +15,7 @@ import { audit } from "../audit/audit";
 import { can, requirePermission, type AccessContext } from "../authz/access";
 import { NotFoundError } from "../authz/errors";
 import { assetScopeWhere } from "./assets";
+import { overviewCharts } from "@/lib/analytics/charts";
 import { toCsv, type ExportDoc, type ExportFormat, type Section } from "../export/document";
 import { renderExport } from "../export/render";
 import { peopleNames } from "./work-order-core";
@@ -410,7 +411,7 @@ export async function getAnalyticsOverview(ctx: AccessContext, raw: unknown, opt
         tone: n(recurring.assets) ? "warn" : undefined,
       },
     ];
-    return { ...r, metrics, workOrdersCreated: n(wo.created) };
+    return { ...r, metrics, workOrdersCreated: n(wo.created), pm: { due: c.due, onTime: c.onTime } };
   });
 }
 
@@ -1264,6 +1265,7 @@ async function buildAnalyticsDoc(
       doc: doc(o.period.label, [
         {
           title: "Key figures",
+          charts: overviewCharts(o.metrics, o.pm),
           columns: ["Metric", "Value", "Basis", "Definition"],
           rows: o.metrics.map((m) => [m.label, m.display, m.basis === "now" ? "Right now" : "In period", m.definition]),
         },

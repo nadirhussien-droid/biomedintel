@@ -33,7 +33,6 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: "/testing",
         label: "Safety Tests and Calibration",
-        stage: 6,
         icon: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM13 8l-3 5h4l-3 5",
       },
       {

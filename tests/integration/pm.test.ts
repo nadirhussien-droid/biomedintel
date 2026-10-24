@@ -37,6 +37,7 @@ import { runPmGenerationNow, runScheduledGeneration } from "@/server/services/pm
 import { exportPmCsv, getAssetPm, getPmReport, listSchedule } from "@/server/services/pm-schedule";
 import { approveRelease, getSafetyHold, rejectRelease } from "@/server/services/safety-holds";
 import { addStandard, addStandardRule, verifyStandard } from "@/server/services/test-standards";
+import { addCalibration, createTestEquipment } from "@/server/services/testing";
 import { addDays, endOfLocalDay, localToday } from "@/lib/pm/dates";
 import { POST as cronPost } from "@/app/api/cron/pm-generate/route";
 import {
@@ -173,8 +174,43 @@ const answers = (over: Record<string, { result: string; value?: number | string;
     notes: over[i.key]?.notes ?? null,
   }));
 
+let analyserId = "";
+/** A fictional calibrated safety analyser (electrical safety results need a tool on record). */
+async function analyser() {
+  if (analyserId) return analyserId;
+  const ctx = await amina();
+  const tool = await createTestEquipment(ctx, {
+    name: "Fictional safety analyser",
+    kind: "SAFETY_ANALYSER",
+    manufacturer: "Fictional Maker",
+    model: "SA-1",
+    serialNumber: `PM-${randomUUID().slice(0, 8)}`,
+    equipmentTag: "",
+    measures: "",
+    calibrationIntervalMonths: "12",
+    heldBy: "",
+    location: "",
+    status: "IN_USE",
+    notes: "",
+  });
+  await addCalibration(ctx, {
+    testEquipmentId: tool.id,
+    calibratedOn: addDays(TODAY, -30),
+    dueOn: "",
+    certificateNumber: "",
+    laboratory: "Fictional Lab",
+    accreditation: "",
+    traceableTo: "",
+    result: "PASS",
+    notes: "",
+  });
+  analyserId = tool.id;
+  return analyserId;
+}
+
 const signOff = async (id: string, a = answers(), ctx?: Awaited<ReturnType<typeof amina>>) =>
   completeWorkOrder(ctx ?? (await amina()), {
+    testEquipmentId: await analyser(),
     id,
     resolution: "PM carried out as per checklist (fictional).",
     diagnosis: "",
@@ -622,11 +658,29 @@ describe("PM sign-off and checklists", () => {
     const es = results.find((x) => x.itemKey === "es_pe")!;
     expect(es).toMatchObject({ testStandardCode: "IEC 62353", testStandardVersion: "Ed. 2.0 (2014)", unit: "Ω" });
     expect(Number(es.value)).toBeCloseTo(0.12);
+    expect(done.testEquipmentId).toBe(await analyser()); // the analyser used is recorded on the job
     await expect(owner.checklistResult.update({ where: { id: es.id }, data: { notes: "x" } })).rejects.toThrow();
     expect((await owner.pmOccurrence.findUniqueOrThrow({ where: { id: occ.id } })).status).toBe("COMPLETED");
     expect((await owner.pmOccurrence.findUniqueOrThrow({ where: { id: occ.id } })).onTime).toBe(true);
     expect((await owner.pmSchedule.findUniqueOrThrow({ where: { id: schedule.id } })).lastDoneOn).not.toBeNull();
     expect((await owner.asset.findUniqueOrThrow({ where: { id: asset.id } })).status).toBe("IN_SERVICE");
+  });
+
+  it("electrical safety results need the test equipment used", async () => {
+    const { wo } = await generatedJob();
+    await startAsAmina(wo.id);
+    const base = {
+      id: wo.id,
+      resolution: "PM done (fictional).",
+      diagnosis: "",
+      answers: answers(),
+      declaration: true,
+    };
+    await expect(completeWorkOrder(await amina(), base)).rejects.toThrow(/test equipment/);
+    await expect(completeWorkOrder(await amina(), { ...base, testEquipmentId: randomUUID() })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect((await owner.workOrder.findUniqueOrThrow({ where: { id: wo.id } })).status).toBe("IN_PROGRESS");
   });
 
   it("refuses inconsistent answers: missing items, out-of-limit passes, unexplained failures", async () => {
@@ -729,6 +783,7 @@ describe("Failed Safety Test — Do Not Use (independent review before return to
     await startWorkOrder(await james(), { id: retest.id });
     await completeWorkOrder(await james(), {
       id: retest.id,
+      testEquipmentId: await analyser(),
       resolution: "Retest after repair (test)",
       diagnosis: "",
       answers: [{ key: "es_pe", result: "PASS", value: 0.08, notes: null }],
@@ -813,6 +868,7 @@ describe("Failed Safety Test — Do Not Use (independent review before return to
     await startWorkOrder(await amina(), { id: retestId });
     await completeWorkOrder(await amina(), {
       id: retestId,
+      testEquipmentId: await analyser(),
       resolution: "Retest (test)",
       diagnosis: "",
       answers: [{ key: "es_pe", result: "PASS", value: 0.1, notes: null }],

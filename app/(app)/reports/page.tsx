@@ -7,6 +7,8 @@ import { analyticsFilterOptions, getAnalyticsOverview } from "@/server/services/
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ReportFilters, filterQuery } from "@/components/analytics/filters";
+import { ChartGrid } from "@/components/analytics/charts";
+import { overviewCharts } from "@/lib/analytics/charts";
 import { ExportLink, MetricTile } from "@/components/analytics/ui";
 import { readReportParams, type SearchParams } from "@/lib/analytics/params";
 import { PERIOD_LABELS } from "@/lib/analytics/period";
@@ -51,6 +53,7 @@ export default async function AnalyticsDashboard({ searchParams }: { searchParam
           fields={["period", "hospital", "department", "location", "category", "priority"]}
         />
       </Card>
+      <ChartGrid charts={overviewCharts(o.metrics, o.pm)} />
       {SECTIONS.map((s) => (
         <section key={s.title} aria-labelledby={`sec-${s.title}`} className="flex flex-col gap-3">
           <h2 id={`sec-${s.title}`} className="text-ink text-base font-semibold">

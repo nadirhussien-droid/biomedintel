@@ -8,7 +8,18 @@
 /** A cell: text, a number, or a date-time (shown in UTC). "YYYY-MM-DD" strings are calendar dates. */
 export type Cell = string | number | Date | null | undefined;
 
+/** A chart drawn in the PDF and on screen. Excel and CSV carry the same numbers in the tables. */
+export type ChartSpec = {
+  kind: "donut" | "bar";
+  title: string;
+  items: { label: string; value: number; color: string }[];
+  /** Donut only: the big number in the middle, e.g. { value: "100%", label: "on time" }. */
+  centre?: { value: string; label: string };
+};
+
 export type Section = {
+  /** Charts printed above the table (PDF only). */
+  charts?: ChartSpec[];
   /** Heading above a table (PDF and Excel only; CSV keeps its existing layout). */
   title?: string;
   /** A sentence that explains the figures (printed as its own line). */

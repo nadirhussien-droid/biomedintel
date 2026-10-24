@@ -335,7 +335,19 @@ const SECTION_NAMES: Record<string, string> = {
  * answered; the overall result is worked out on the server from the answers,
  * and a failed electrical safety item places a "Do Not Use" hold.
  */
-export function PmCompleteForm({ id, items, standard }: { id: string; items: PmItem[]; standard: string | null }) {
+export type TestToolOption = { id: string; label: string; state: string; dueOn: string | null };
+
+export function PmCompleteForm({
+  id,
+  items,
+  standard,
+  testEquipment,
+}: {
+  id: string;
+  items: PmItem[];
+  standard: string | null;
+  testEquipment: TestToolOption[];
+}) {
   const [results, setResults] = useState<Record<string, string>>({});
   const anyFail = Object.values(results).includes("FAIL");
   const esFail = items.some((i) => i.section === "ELECTRICAL_SAFETY" && results[i.key] === "FAIL");
@@ -410,6 +422,29 @@ export function PmCompleteForm({ id, items, standard }: { id: string; items: PmI
               );
             })}
           </fieldset>
+          {items.some((i) => i.section === "ELECTRICAL_SAFETY") ? (
+            <FieldShell
+              label="Test equipment used for the electrical safety checks"
+              name="testEquipmentId"
+              error={err(state, "testEquipmentId")}
+              hint="Needed unless every electrical safety item is Not applicable. Register your analyser and its calibration under Safety Tests and Calibration."
+            >
+              <select
+                id="testEquipmentId"
+                name="testEquipmentId"
+                defaultValue=""
+                className="border-line-strong text-ink min-h-11 w-full rounded-sm border bg-white px-3 text-sm"
+              >
+                <option value="">Choose…</option>
+                {testEquipment.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                    {t.state === "OVERDUE" ? ` — CALIBRATION OVERDUE (was due ${t.dueOn})` : ""}
+                  </option>
+                ))}
+              </select>
+            </FieldShell>
+          ) : null}
           <FieldShell label="Work done and findings" name="resolution" error={err(state, "resolution")}>
             <textarea id="resolution" name="resolution" required maxLength={2000} className={textarea} />
           </FieldShell>

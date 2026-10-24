@@ -126,6 +126,14 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
             >
               Equipment catalog
             </Link>
+            {can(ctx, "asset.create") && can(ctx, "catalog.create") ? (
+              <Link
+                href="/assets/import"
+                className={`${linkButton} border-line-strong text-navy-900 hover:bg-surface-sunken bg-white`}
+              >
+                Upload many
+              </Link>
+            ) : null}
             {can(ctx, "asset.create") ? (
               <Link
                 href="/assets/new"

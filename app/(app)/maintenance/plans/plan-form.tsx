@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useKeepValuesSubmit } from "@/components/forms/use-keep-values";
 import { FieldShell, InputField, SelectField } from "@/components/ui/field";
 import { intervalLabel, type IntervalUnitValue } from "@/lib/pm/dates";
+import { TEST_TEMPLATES } from "@/lib/pm/test-templates";
 import {
   CHECKLIST_SECTIONS,
   INTERVAL_PRESETS,
@@ -119,9 +120,44 @@ function ChecklistEditor({
     setItems(next);
   };
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
+  const [template, setTemplate] = useState("");
   return (
     <fieldset className="flex flex-col gap-3">
       <legend className="text-sm font-semibold">Checklist</legend>
+      <div className="bg-surface flex flex-wrap items-end gap-2 rounded-md p-3">
+        <div className="flex min-w-60 flex-1 flex-col gap-1">
+          <label htmlFor="template-pick" className="text-sm font-semibold">
+            Start from a template for this type of equipment
+          </label>
+          <select
+            id="template-pick"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            className="border-line-strong text-ink min-h-11 rounded-sm border bg-white px-3 text-sm"
+          >
+            <option value="">Choose a template…</option>
+            {TEST_TEMPLATES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          variant="secondary"
+          disabled={!template}
+          onClick={() => {
+            const t = TEST_TEMPLATES.find((x) => x.id === template);
+            if (t) setItems(t.items.map((it) => ({ ...it })));
+          }}
+        >
+          Replace checklist with template
+        </Button>
+        <p className="text-ink-muted w-full text-xs">
+          {TEST_TEMPLATES.find((x) => x.id === template)?.description ??
+            "Templates are starting points. Different devices (for example an ECG monitor and a ventilator) need different tests and values: edit the items and limits from the manufacturer manual before approving the plan."}
+        </p>
+      </div>
       <p className="text-ink-muted text-xs">
         Each item is answered Pass, Fail or Not applicable at sign-off. Measurements record a value and are checked
         against the limits. Electrical safety items record the test standard and version used.

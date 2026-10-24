@@ -19,7 +19,7 @@
 | Fault reporter | Fault Reporter | Optional |
 | Platform Super Administrator | Runs the platform; not a member role | Required |
 
-## Actions (71)
+## Actions (73)
 
 ✔ = allowed. Blank = refused.
 
@@ -77,6 +77,13 @@
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | `feedback.submit` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `feedback.manage` | ✔ |  |  |  |  |  |  |
+
+### testing
+
+| Action | Org admin | Eng. manager | Technician | Inventory mgr | Dept head | Auditor | Fault reporter |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `testing.view` | ✔ | ✔ | ✔ | ✔ |  | ✔ |  |
+| `testing.manage` | ✔ | ✔ | ✔ |  |  |  |  |
 
 ### asset
 

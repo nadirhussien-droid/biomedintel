@@ -335,6 +335,9 @@ model Organization {
   workOrderEvents     WorkOrderEvent[]
   workOrderTasks      WorkOrderTask[]
   workOrderCorrections WorkOrderCorrection[]
+  testEquipment        TestEquipment[]
+  calibrationRecords   CalibrationRecord[]
+  calibrationCertificates CalibrationCertificate[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
   problemReports      ProblemReport[]
@@ -773,6 +776,8 @@ model WorkOrder {
   checklist             Json?
   /// Stage 6: test standard and version that apply to this job (copied, so later changes never rewrite history).
   testStandardId        String?           @map("test_standard_id") @db.Uuid
+  /// The safety analyser or other tool used for the electrical safety checks.
+  testEquipmentId       String?           @map("test_equipment_id") @db.Uuid
   testStandardCode      String?           @map("test_standard_code")
   testStandardVersion   String?           @map("test_standard_version")
   /// Stage 6: the safety hold this repair or retest job belongs to.
@@ -781,6 +786,7 @@ model WorkOrder {
   createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  testEquipment TestEquipment? @relation(fields: [organizationId, testEquipmentId], references: [organizationId, id], onDelete: Restrict)
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   asset            Asset                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
   hospital         Hospital                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
@@ -2533,4 +2539,82 @@ model ProblemReport {
   @@index([organizationId, status, createdAt(sort: Desc)])
   @@index([organizationId, reporterId, createdAt(sort: Desc)])
   @@map("problem_reports")
+}
+
+/// A tool the biomedical team tests other devices with (safety analyser, flow analyser...).
+model TestEquipment {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  name                      String
+  /// SAFETY_ANALYSER, DEFIBRILLATOR_TESTER, FLOW_ANALYSER, PRESSURE_METER, SIMULATOR, MULTIMETER, THERMOMETER, WEIGHTS_OR_SCALE, OTHER
+  kind                      String
+  manufacturer              String
+  model                     String
+  serialNumber              String   @map("serial_number")
+  /// The team's own identifier for the tool (optional, unique per organisation).
+  equipmentTag              String?  @map("equipment_tag")
+  measures                  String?
+  calibrationIntervalMonths Int      @default(12) @map("calibration_interval_months")
+  heldBy                    String?  @map("held_by")
+  location                  String?
+  /// IN_USE, OUT_OF_SERVICE, RETIRED
+  status                    String   @default("IN_USE")
+  notes                     String?
+  createdById               String   @map("created_by")
+  updatedById               String?  @map("updated_by")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  calibrations CalibrationRecord[]
+  workOrders   WorkOrder[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status], map: "test_equipment_org_status_idx")
+  @@map("test_equipment")
+}
+
+/// One calibration of a tool. Append-only: a mistake is corrected with a new record.
+model CalibrationRecord {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  testEquipmentId   String   @map("test_equipment_id") @db.Uuid
+  calibratedOn      DateTime @map("calibrated_on") @db.Date
+  dueOn             DateTime @map("due_on") @db.Date
+  certificateNumber String?  @map("certificate_number")
+  laboratory        String
+  accreditation     String?
+  traceableTo       String?  @map("traceable_to")
+  /// PASS, PASS_ADJUSTED, FAIL
+  result            String
+  notes             String?
+  createdById       String   @map("created_by")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  equipment    TestEquipment           @relation(fields: [organizationId, testEquipmentId], references: [organizationId, id], onDelete: Restrict)
+  certificate  CalibrationCertificate?
+
+  @@unique([organizationId, id])
+  @@index([organizationId, testEquipmentId, calibratedOn], map: "calibration_records_equipment_idx")
+  @@map("calibration_records")
+}
+
+/// The certificate PDF for a calibration record (kept apart so lists never load files).
+model CalibrationCertificate {
+  recordId       String   @id @map("record_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  filename       String
+  mime           String
+  sizeBytes      Int      @map("size_bytes")
+  sha256         String
+  content        Bytes
+  uploadedById   String   @map("uploaded_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  record       CalibrationRecord @relation(fields: [organizationId, recordId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, recordId])
+  @@map("calibration_certificates")
 }
