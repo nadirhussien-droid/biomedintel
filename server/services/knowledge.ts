@@ -127,26 +127,39 @@ export async function knowledgeOptions(ctx: AccessContext) {
 
 // ─── Search ──────────────────────────────────────────────────────────────────
 
-/** Applicability: a model filter also finds documents for the model's category or manufacturer. */
+/**
+ * Applicability, the same rule IntellAssist uses for a real device:
+ *  - a document with NO equipment links is general and applies to everything;
+ *  - a document linked to a model, a category or a manufacturer applies to a
+ *    device that is that model, in that category or from that manufacturer.
+ * Choosing a model means "this exact device", so its own category and
+ * manufacturer are used and the other two lists are ignored. Choosing only a
+ * category and/or a manufacturer finds general documents, documents linked to
+ * that category or manufacturer, and documents linked to a model that fits
+ * every list chosen.
+ */
 function applicabilitySql(q: {
   model: string | null;
   category: string | null;
   manufacturer: string | null;
 }): Prisma.Sql {
-  const parts: Prisma.Sql[] = [];
+  if (!q.model && !q.category && !q.manufacturer) return Prisma.sql`TRUE`;
+  const general = Prisma.sql`NOT EXISTS (SELECT 1 FROM knowledge_targets g WHERE g.document_id = d.id)`;
   if (q.model) {
-    parts.push(Prisma.sql`EXISTS (SELECT 1 FROM knowledge_targets t JOIN equipment_models em ON em.id = ${q.model}::uuid
-      WHERE t.document_id = d.id AND (t.model_id = em.id OR t.category_id = em.category_id OR t.manufacturer_id = em.manufacturer_id))`);
+    return Prisma.sql`(${general} OR EXISTS (SELECT 1 FROM knowledge_targets t JOIN equipment_models em ON em.id = ${q.model}::uuid
+      WHERE t.document_id = d.id AND (t.model_id = em.id OR t.category_id = em.category_id OR t.manufacturer_id = em.manufacturer_id)))`;
   }
-  if (q.category) {
-    parts.push(Prisma.sql`EXISTS (SELECT 1 FROM knowledge_targets t LEFT JOIN equipment_models em ON em.id = t.model_id
-      WHERE t.document_id = d.id AND (t.category_id = ${q.category}::uuid OR em.category_id = ${q.category}::uuid))`);
-  }
-  if (q.manufacturer) {
-    parts.push(Prisma.sql`(EXISTS (SELECT 1 FROM knowledge_targets t LEFT JOIN equipment_models em ON em.id = t.model_id
-      WHERE t.document_id = d.id AND (t.manufacturer_id = ${q.manufacturer}::uuid OR em.manufacturer_id = ${q.manufacturer}::uuid)))`);
-  }
-  return parts.length ? Prisma.join(parts, " AND ") : Prisma.sql`TRUE`;
+  const modelFits = [
+    q.category ? Prisma.sql`em.category_id = ${q.category}::uuid` : Prisma.sql`TRUE`,
+    q.manufacturer ? Prisma.sql`em.manufacturer_id = ${q.manufacturer}::uuid` : Prisma.sql`TRUE`,
+  ];
+  const linked = [
+    Prisma.sql`(t.model_id IS NOT NULL AND ${Prisma.join(modelFits, " AND ")})`,
+    ...(q.category ? [Prisma.sql`t.category_id = ${q.category}::uuid`] : []),
+    ...(q.manufacturer ? [Prisma.sql`t.manufacturer_id = ${q.manufacturer}::uuid`] : []),
+  ];
+  return Prisma.sql`(${general} OR EXISTS (SELECT 1 FROM knowledge_targets t LEFT JOIN equipment_models em ON em.id = t.model_id
+    WHERE t.document_id = d.id AND (${Prisma.join(linked, " OR ")})))`;
 }
 
 /**

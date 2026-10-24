@@ -562,6 +562,60 @@ describe("AI assistance", () => {
     expect(chunks.some((c) => c.documentId === doc.id && /fuse/i.test(c.content))).toBe(true);
   });
 
+  it("choosing the equipment in the filters finds general documents and documents linked to any one of its category, manufacturer or model", async () => {
+    // Found on staging (24 Oct 2026): "any model" found the manual; choosing the right equipment found nothing.
+    const model = await owner.equipmentModel.findUniqueOrThrow({ where: { id: fx.ventModel } });
+    const other = await owner.equipmentModel.findFirstOrThrow({
+      where: { organizationId: fx.orgId, id: { not: fx.ventModel }, manufacturerId: { not: model.manufacturerId } },
+    });
+    const make = async (
+      title: string,
+      links: { modelIds?: string[]; categoryIds?: string[]; manufacturerIds?: string[] },
+    ) => {
+      const d = await createDocument(
+        await amina(),
+        {
+          title,
+          docType: "SERVICE_MANUAL",
+          body: "# Zephyrflux\nThe zephyrflux assembly is replaced as a unit (fictional).",
+          modelIds: [],
+          categoryIds: [],
+          manufacturerIds: [],
+          ...links,
+        },
+        null,
+      );
+      await approveDocument(await james(), { id: d.id, authorisation: "Fictional test", confirm: "on" });
+      return d.id;
+    };
+    const general = await make("Zephyr general notes (fictional)", {});
+    const byMaker = await make("Zephyr maker notes (fictional)", { manufacturerIds: [model.manufacturerId] });
+    const byCategory = await make("Zephyr category notes (fictional)", { categoryIds: [model.categoryId] });
+    const byModel = await make("Zephyr model notes (fictional)", { modelIds: [model.id] });
+    const otherModel = await make("Zephyr other model notes (fictional)", { modelIds: [other.id] });
+    const ids = async (f: Record<string, string>) =>
+      (await searchKnowledge(await amina(), { q: "zephyrflux", ...f })).documents.map((d) => d.id);
+
+    // The exact device chosen, with its own manufacturer and category also chosen.
+    const exact = await ids({ model: model.id, manufacturer: model.manufacturerId, category: model.categoryId });
+    expect(exact).toEqual(expect.arrayContaining([general, byMaker, byCategory, byModel]));
+    expect(exact).not.toContain(otherModel);
+    // A model alone behaves the same.
+    expect(await ids({ model: model.id })).toEqual(expect.arrayContaining([general, byMaker, byCategory, byModel]));
+    // Category and manufacturer without a model.
+    const both = await ids({ manufacturer: model.manufacturerId, category: model.categoryId });
+    expect(both).toEqual(expect.arrayContaining([general, byMaker, byCategory, byModel]));
+    expect(both).not.toContain(otherModel);
+    // Another manufacturer's model: only general documents and its own links.
+    const away = await ids({ model: other.id });
+    expect(away).toContain(general);
+    expect(away).toContain(otherModel);
+    expect(away).not.toContain(byModel);
+    expect(away).not.toContain(byMaker);
+    // No filters: everything.
+    expect(await ids({})).toEqual(expect.arrayContaining([general, byMaker, byCategory, byModel, otherModel]));
+  });
+
   it("prompt injection in a document cannot change the rules, invent citations, or produce a safety decision", async () => {
     const evil = await createDocument(
       await amina(),
