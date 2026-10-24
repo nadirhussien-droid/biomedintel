@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
-import { cellText, friendlyTime, type Cell, type ExportDoc } from "./document";
+import { cellText, friendlyTime, type Cell, type ChartSpec, type ExportDoc } from "./document";
 
 /** Very long tables are cut in the PDF (with a note); Excel and CSV carry every row. */
 export const PDF_MAX_ROWS = 2000;
@@ -226,6 +226,103 @@ export async function toPdf(
     y += 10;
   };
 
+  // ── Charts: donuts and bars drawn as vectors, two to a row ──
+  const drawCharts = (charts: ChartSpec[]) => {
+    const gap = 16;
+    const cw = (width - gap) / 2;
+    const ch = 118;
+    for (let i = 0; i < charts.length; i += 2) {
+      if (y + ch + 8 > bottom()) {
+        pdf.addPage();
+        y = pdf.page.margins.top;
+      }
+      charts.slice(i, i + 2).forEach((c, j) => {
+        const x0 = left + j * (cw + gap);
+        pdf.roundedRect(x0, y, cw, ch, 4).lineWidth(0.6).strokeColor(LINE).stroke();
+        pdf
+          .font(bold)
+          .fontSize(8.5)
+          .fillColor(NAVY)
+          .text(safe(c.title), x0 + 8, y + 7, { width: cw - 16, lineBreak: false });
+        const top = y + 24;
+        const total = c.items.reduce((a, it) => a + it.value, 0);
+        if (c.kind === "donut") {
+          const r = 38;
+          const cx = x0 + 12 + r;
+          const cy = top + r + 2;
+          if (total <= 0) pdf.circle(cx, cy, r).fill("#E3E9EF");
+          else {
+            let a0 = -Math.PI / 2;
+            for (const it of c.items.filter((it) => it.value > 0)) {
+              if (it.value === total) {
+                pdf.circle(cx, cy, r).fill(it.color);
+                break;
+              }
+              const a1 = a0 + (it.value / total) * Math.PI * 2;
+              const p = (a: number) => `${cx + r * Math.cos(a)} ${cy + r * Math.sin(a)}`;
+              pdf
+                .path(`M ${cx} ${cy} L ${p(a0)} A ${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${p(a1)} Z`)
+                .fill(it.color);
+              a0 = a1;
+            }
+          }
+          pdf.circle(cx, cy, r * 0.62).fill("white");
+          if (c.centre) {
+            pdf
+              .font(bold)
+              .fontSize(14)
+              .fillColor(NAVY)
+              .text(safe(c.centre.value), cx - r * 0.6, cy - 9, { width: r * 1.2, align: "center", lineBreak: false });
+            pdf
+              .font(regular)
+              .fontSize(6)
+              .fillColor("#555555")
+              .text(safe(c.centre.label), cx - r * 0.6, cy + 7, { width: r * 1.2, align: "center", lineBreak: false });
+          }
+          let ly = top + 14;
+          const lx = cx + r + 14;
+          for (const it of c.items) {
+            pdf.rect(lx, ly + 1, 8, 8).fill(it.color);
+            const pct = total > 0 ? ` (${Math.round((it.value / total) * 100)}%)` : "";
+            pdf
+              .font(bold)
+              .fontSize(7.5)
+              .fillColor("black")
+              .text(safe(`${it.value}${pct}`), lx + 13, ly, { width: x0 + cw - lx - 18, lineBreak: false });
+            pdf
+              .font(regular)
+              .fontSize(7)
+              .fillColor("#444444")
+              .text(safe(it.label), lx + 13, ly + 9, { width: x0 + cw - lx - 18, lineBreak: false });
+            ly += 26;
+          }
+        } else {
+          const max = Math.max(1, ...c.items.map((it) => it.value));
+          const labelW = 112;
+          const barX = x0 + 8 + labelW;
+          const barMax = cw - 16 - labelW - 24;
+          let by = top + 2;
+          for (const it of c.items) {
+            pdf
+              .font(regular)
+              .fontSize(6.8)
+              .fillColor("#333333")
+              .text(safe(it.label), x0 + 8, by + 1, { width: labelW - 4, lineBreak: false, ellipsis: true });
+            pdf.rect(barX, by, barMax, 9).fill("#EEF2F6");
+            if (it.value > 0) pdf.rect(barX, by, Math.max(2, (it.value / max) * barMax), 9).fill(it.color);
+            pdf
+              .font(bold)
+              .fontSize(7.5)
+              .fillColor("black")
+              .text(String(it.value), barX + barMax + 4, by + 1, { width: 20, lineBreak: false });
+            by += 17;
+          }
+        }
+      });
+      y += ch + 10;
+    }
+  };
+
   for (const s of doc.sections) {
     if (s.title) {
       if (y + 40 > bottom()) {
@@ -239,6 +336,7 @@ export async function toPdf(
       pdf.font(regular).fontSize(8).fillColor("#333333").text(safe(s.note), left, y, { width });
       y = pdf.y + 6;
     }
+    if (s.charts?.length) drawCharts(s.charts);
     if (s.columns) drawTable(s.columns, s.rows ?? []);
   }
 
