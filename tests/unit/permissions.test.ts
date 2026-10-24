@@ -26,11 +26,12 @@ describe("permission matrix", () => {
     expect(roleCan("AUDITOR", "audit.view")).toBe(true);
   });
 
-  it("fault reporters can see their scope, report faults and comment — nothing else", () => {
+  it("fault reporters can see their scope, report faults, comment and send a problem report — nothing else", () => {
     const allowed = (Object.keys(PERMISSIONS) as Action[]).filter((a) => roleCan("FAULT_REPORTER", a));
     expect(allowed.sort()).toEqual([
       "asset.view",
       "dashboard.view",
+      "feedback.submit", // "Report a problem" in the Help panel (24 Oct 2026)
       "hospital.view",
       "workorder.comment",
       "workorder.report",

@@ -51,7 +51,7 @@ export default async function setup() {
                purchase_requests, external_services, warranty_claim_events, warranty_claims, part_suppliers, part_compatibility,
                parts, stock_locations, supplier_manufacturers, suppliers, inventory_settings, report_snapshots, report_schedules, checklist_results, safety_hold_events, safety_holds, pm_occurrences,
                pm_generation_runs, pm_schedules, maintenance_plan_revisions, maintenance_plans, test_standard_rules,
-               test_standards, attachments, organization_logos, work_order_tasks, work_order_events, downtime_events,
+               test_standards, attachments, organization_logos, problem_reports, work_order_tasks, work_order_events, downtime_events,
                work_order_counters, work_orders, lifecycle_events, warranties, asset_status_history, assets, locations,
                equipment_models, equipment_categories, manufacturers, membership_scopes, memberships, departments, hospitals, organizations,
                auth_throttles, auth_two_factors, auth_sessions, auth_accounts, auth_verifications, users;

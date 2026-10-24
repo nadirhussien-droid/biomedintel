@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/shell/sidebar";
 import { ContextSelectors } from "@/components/shell/context-selectors";
 import { UserMenu } from "@/components/shell/user-menu";
 import { NotificationBell } from "@/components/shell/notification-bell";
+import { HelpPanel } from "@/components/help/help-panel";
 import { countMyUnread } from "@/server/services/notifications";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -50,6 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
           <div className="flex items-center gap-3">
+            <HelpPanel role={ctx.role} roleLabel={ROLE_LABELS[ctx.role]} canReport={can(ctx, "feedback.submit")} />
             <NotificationBell unread={await countMyUnread(ctx)} />
             <UserMenu
               name={ctx.user.name}

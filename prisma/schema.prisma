@@ -334,6 +334,7 @@ model Organization {
   workOrderTasks      WorkOrderTask[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
+  problemReports      ProblemReport[]
   downtimeEvents      DowntimeEvent[]
   notifications       Notification[]
   workOrderCounters   WorkOrderCounter[]
@@ -2480,4 +2481,26 @@ model OrganizationLogo {
 
   @@index([organizationId, createdAt(sort: Desc)])
   @@map("organization_logos")
+}
+
+/// "Report a problem" from the Help panel. Read and resolved by the
+/// Organisation Administrator. Never deleted.
+model ProblemReport {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  reporterId     String    @map("reporter_id")
+  reporterRole   String    @map("reporter_role")
+  kind           String // NOT_WORKING | UNCLEAR | SUGGESTION
+  message        String
+  pagePath       String    @map("page_path")
+  status         String    @default("OPEN") // OPEN | RESOLVED
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedById   String?   @map("resolved_by")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, reporterId, createdAt(sort: Desc)])
+  @@map("problem_reports")
 }
