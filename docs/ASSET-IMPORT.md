@@ -22,3 +22,7 @@ Page: **Equipment Assets → Upload assets** (`/assets/import`). Open to roles t
 - The server re-checks every row on confirm: scope, permission, duplicates and the same field rules as the single Register asset form. The browser only carries the rows between the two steps.
 - A row that fails while saving does not stop the others; the result lists them.
 - Cost is never imported (only some roles may record it).
+
+## Electrical class, applied part type and missing details
+
+The template has two optional columns: **Electrical class** (Class I, II, III or Internally powered) and **Applied part type** (B, BF, CF or None). Both are also on the asset form and the asset page. Only Asset ID, Manufacturer, Model and Category are required; nothing else blocks a save. After an upload the result page counts the new assets still missing electrical class, applied part type, risk category or serial number, and links to the register filter **Details: Details missing** so they can be completed one by one. Values are matched loosely (for example "I", "Class 1", "BF", "type bf"); anything not recognised is left blank with a warning.

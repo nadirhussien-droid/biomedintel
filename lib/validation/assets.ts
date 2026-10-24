@@ -21,6 +21,57 @@ export const RISK_CLASSES = ["HIGH", "MEDIUM", "LOW"] as const;
 export type RiskClassValue = (typeof RISK_CLASSES)[number];
 export const RISK_LABELS: Record<RiskClassValue, string> = { HIGH: "High", MEDIUM: "Medium", LOW: "Low" };
 
+export const ELECTRICAL_CLASSES = ["CLASS_I", "CLASS_II", "CLASS_III", "INTERNALLY_POWERED"] as const;
+export const ELECTRICAL_CLASS_LABELS: Record<(typeof ELECTRICAL_CLASSES)[number], string> = {
+  CLASS_I: "Class I",
+  CLASS_II: "Class II",
+  CLASS_III: "Class III",
+  INTERNALLY_POWERED: "Internally powered",
+};
+export const APPLIED_PART_TYPES = ["NONE", "TYPE_B", "TYPE_BF", "TYPE_CF"] as const;
+export const APPLIED_PART_LABELS: Record<(typeof APPLIED_PART_TYPES)[number], string> = {
+  NONE: "No applied part",
+  TYPE_B: "Type B",
+  TYPE_BF: "Type BF",
+  TYPE_CF: "Type CF",
+};
+
+/** Words people type for these two fields (in a spreadsheet, for example) mapped to the stored value. */
+export function parseElectricalClass(v: string): (typeof ELECTRICAL_CLASSES)[number] | null {
+  const k = v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const map: Record<string, (typeof ELECTRICAL_CLASSES)[number]> = {
+    i: "CLASS_I",
+    classi: "CLASS_I",
+    "1": "CLASS_I",
+    ii: "CLASS_II",
+    classii: "CLASS_II",
+    "2": "CLASS_II",
+    iii: "CLASS_III",
+    classiii: "CLASS_III",
+    "3": "CLASS_III",
+    internallypowered: "INTERNALLY_POWERED",
+    internal: "INTERNALLY_POWERED",
+    battery: "INTERNALLY_POWERED",
+    ip: "INTERNALLY_POWERED",
+  };
+  return map[k] ?? null;
+}
+export function parseAppliedPartType(v: string): (typeof APPLIED_PART_TYPES)[number] | null {
+  const k = v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const map: Record<string, (typeof APPLIED_PART_TYPES)[number]> = {
+    none: "NONE",
+    na: "NONE",
+    noappliedpart: "NONE",
+    b: "TYPE_B",
+    typeb: "TYPE_B",
+    bf: "TYPE_BF",
+    typebf: "TYPE_BF",
+    cf: "TYPE_CF",
+    typecf: "TYPE_CF",
+  };
+  return map[k] ?? null;
+}
+
 export const SORT_FIELDS = ["assetTag", "name", "status", "updatedAt", "createdAt"] as const;
 export const PAGE_SIZE = 25;
 
@@ -112,6 +163,14 @@ const assetFields = {
   ),
   status: z.enum(EDITABLE_STATUSES, { message: "Choose a supported status" }),
   riskClass: z.preprocess(blankToNull, z.enum(RISK_CLASSES, { message: "Choose High, Medium or Low" }).nullable()),
+  electricalClass: z.preprocess(
+    blankToNull,
+    z.enum(ELECTRICAL_CLASSES, { message: "Choose Class I, II or III" }).nullable(),
+  ),
+  appliedPartType: z.preprocess(
+    blankToNull,
+    z.enum(APPLIED_PART_TYPES, { message: "Choose Type B, BF or CF" }).nullable(),
+  ),
   purchaseDate: optionalDate("Purchase date", true),
   commissionedAt: optionalDate("Commissioning date", true),
   eolDate: optionalDate("End-of-life date", false),
@@ -284,6 +343,8 @@ export const assetQuerySchema = z.object({
   manufacturer: uuid.optional().catch(undefined),
   status: z.enum(ASSET_STATUSES).optional().catch(undefined),
   risk: z.enum(RISK_CLASSES).optional().catch(undefined),
+  /** "1": only assets still missing details (electrical class, applied part type, risk category or serial number). */
+  incomplete: z.enum(["1"]).optional().catch(undefined),
   archived: z.enum(["exclude", "include", "only"]).default("exclude").catch("exclude"),
   sort: z.enum(SORT_FIELDS).default("assetTag").catch("assetTag"),
   dir: z.enum(["asc", "desc"]).default("asc").catch("asc"),

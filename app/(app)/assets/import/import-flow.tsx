@@ -37,6 +37,19 @@ export function ImportFlow({ hospitals, departments }: { hospitals: Hospital[]; 
             categories, {done.createdCatalog.models} models, {done.createdCatalog.locations} rooms
           </li>
         </ul>
+        {done.needDetails ? (
+          <p className="mt-3 text-sm">
+            <strong>{done.needDetails}</strong> of the new assets are missing details such as electrical class (I, II,
+            III), applied part type (B, BF, CF), risk category or serial number. Nothing is blocked. You can add them
+            later by editing each asset.{" "}
+            <Link
+              href="/assets?incomplete=1&all=1&hospital=all&department=all"
+              className="font-semibold text-teal-700 underline"
+            >
+              Show assets with details missing
+            </Link>
+          </p>
+        ) : null}
         {done.failed.length ? (
           <div className="mt-4">
             <p className="text-sm font-semibold">Rows that were not added</p>

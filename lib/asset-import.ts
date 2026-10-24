@@ -23,6 +23,8 @@ export type ImportRow = {
   location: string | null;
   status: string | null;
   riskClass: string | null;
+  electricalClass: string | null;
+  appliedPartType: string | null;
   purchaseDate: string | null;
   supplier: string | null;
   notes: string | null;
@@ -42,6 +44,8 @@ export const TEMPLATE_COLUMNS = [
   "Location",
   "Status",
   "Risk class",
+  "Electrical class",
+  "Applied part type",
   "Purchase date",
   "Supplier",
   "Notes",
@@ -61,6 +65,8 @@ const ALIASES: Record<Field, string[]> = {
   location: ["location", "room", "locationdescription"],
   status: ["status", "assetstatus"],
   riskClass: ["riskclass", "risk", "risklevel"],
+  electricalClass: ["electricalclass", "protectionclass", "deviceclass", "class", "electricalprotectionclass"],
+  appliedPartType: ["appliedparttype", "appliedpart", "parttype", "typebbfcf", "bfcf"],
   purchaseDate: ["purchasedate", "dateofpurchase", "purchased"],
   supplier: ["supplier", "vendor", "purchasedfrom"],
   notes: ["notes", "note", "comments", "comment", "description", "remarks"],
@@ -233,6 +239,8 @@ export function buildRows(table: string[][]): ParsedImport {
       location: get("location") || null,
       status: get("status") || null,
       riskClass: get("riskClass") || null,
+      electricalClass: get("electricalClass") || null,
+      appliedPartType: get("appliedPartType") || null,
       purchaseDate: get("purchaseDate") ? normaliseDate(get("purchaseDate")) : null,
       supplier: get("supplier") || null,
       notes: get("notes") || null,
@@ -278,6 +286,8 @@ export async function buildTemplate(): Promise<Buffer> {
     "Ward 2",
     "In service",
     "High",
+    "Class I",
+    "CF",
     "2024-03-15",
     "Example Supplier",
     "Example row: delete it before uploading",
@@ -311,6 +321,8 @@ export async function buildTemplate(): Promise<Buffer> {
     ["Location", "No", "Room or area inside the department you choose. Created automatically if new."],
     ["Status", "No", "In service, Under repair, or Out of service. Blank means In service."],
     ["Risk class", "No", "High, Medium or Low."],
+    ["Electrical class", "No", "Class I, Class II, Class III or Internally powered. Used for electrical safety tests."],
+    ["Applied part type", "No", "Type B, BF or CF, or None if the device has no applied part."],
     ["Purchase date", "No", "YYYY-MM-DD or DD/MM/YYYY."],
     ["Supplier", "No", "Where it was bought."],
     ["Notes", "No", "Anything useful. Never put patient information here."],

@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/server/db/client";
 import { AuthorizationError, NotFoundError, ValidationError } from "@/server/authz/errors";
 import { importAssets, previewAssetImport } from "@/server/services/asset-import";
-import { createAsset } from "@/server/services/assets";
+import { createAsset, listAssets } from "@/server/services/assets";
 import type { ImportRow } from "@/lib/asset-import";
 import { coastalAssetInput, contextFor, departmentId, hospitalId, owner, uniqueCode, addTestMember } from "../helpers";
 
@@ -29,6 +29,8 @@ function row(over: Partial<ImportRow> = {}): ImportRow {
     location: null,
     status: null,
     riskClass: null,
+    electricalClass: null,
+    appliedPartType: null,
     purchaseDate: null,
     supplier: null,
     notes: null,
@@ -75,6 +77,39 @@ describe("bulk asset upload", () => {
     });
     expect(batch.metadata).toMatchObject({ fileName: "test.xlsx", created: 2, authorisationConfirmed: true });
     expect(await owner.auditLog.count({ where: { action: "asset.created", entityId: saved.id } })).toBe(1);
+  });
+
+  it("saves electrical class and applied part type, and finds assets that still lack details", async () => {
+    const ctx = await amina();
+    const w = await where();
+    const full = row({
+      electricalClass: "Class II",
+      appliedPartType: "BF",
+      riskClass: "High",
+      serialNumber: "SN-" + uniqueCode("S"),
+    });
+    const bare = row(); // only the four required columns
+    const odd = row({ electricalClass: "Class 9", appliedPartType: "XX" });
+    const preview = await previewAssetImport(ctx, { ...w, rows: [odd] });
+    expect(preview.rows[0]!.problems.concat(preview.rows[0]!.warnings).join(" ")).toMatch(/Electrical class/);
+
+    const result = await importAssets(ctx, {
+      ...w,
+      rows: [full, bare],
+      fileName: "t.xlsx",
+      authorisationConfirmed: true,
+    });
+    expect(result.created).toBe(2);
+    expect(result.needDetails).toBe(1);
+    const saved = await owner.asset.findFirstOrThrow({ where: { assetTag: full.assetTag } });
+    expect(saved.electricalClass).toBe("CLASS_II");
+    expect(saved.appliedPartType).toBe("TYPE_BF");
+    const empty = await owner.asset.findFirstOrThrow({ where: { assetTag: bare.assetTag } });
+    expect(empty.electricalClass).toBeNull();
+
+    const find = (tag: string) => listAssets(ctx, { incomplete: "1", q: tag });
+    expect((await find(bare.assetTag)).rows.map((x: { assetTag: string }) => x.assetTag)).toEqual([bare.assetTag]);
+    expect((await find(full.assetTag)).rows).toEqual([]);
   });
 
   it("skips assets already in the register, so uploading the same file twice is safe", async () => {

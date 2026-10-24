@@ -139,6 +139,10 @@ export function buildAssetWhere(ctx: AccessContext, q: AssetQuery): Prisma.Asset
   if (q.department) and.push({ departmentId: q.department });
   if (q.status) and.push({ status: q.status });
   if (q.risk) and.push({ riskClass: q.risk });
+  if (q.incomplete)
+    and.push({
+      OR: [{ electricalClass: null }, { appliedPartType: null }, { riskClass: null }, { serialNumber: null }],
+    });
   if (q.category) and.push({ model: { categoryId: q.category } });
   if (q.manufacturer) and.push({ model: { manufacturerId: q.manufacturer } });
   if (q.archived === "exclude") and.push({ archivedAt: null });
@@ -335,6 +339,8 @@ export async function getAssetForEdit(ctx: AccessContext, assetId: string) {
         description: a.description ?? "",
         status: a.status,
         riskClass: a.riskClass ?? "",
+        electricalClass: a.electricalClass ?? "",
+        appliedPartType: a.appliedPartType ?? "",
         purchaseDate: isoDate(a.purchaseDate) ?? "",
         commissionedAt: isoDate(a.commissionedAt) ?? "",
         eolDate: isoDate(a.eolDate) ?? "",
@@ -508,6 +514,8 @@ export async function createAsset(ctx: AccessContext, input: unknown) {
           supplier: data.supplier,
           status: data.status,
           riskClass: data.riskClass,
+          electricalClass: data.electricalClass,
+          appliedPartType: data.appliedPartType,
           purchaseDate: toDate(data.purchaseDate),
           commissionedAt: toDate(data.commissionedAt),
           eolDate: toDate(data.eolDate),
@@ -574,6 +582,8 @@ const AUDITED_FIELDS = [
   "description",
   "status",
   "riskClass",
+  "electricalClass",
+  "appliedPartType",
   "purchaseDate",
   "commissionedAt",
   "eolDate",
@@ -636,6 +646,8 @@ export async function updateAsset(ctx: AccessContext, input: unknown) {
       description: data.description,
       status: data.status,
       riskClass: data.riskClass,
+      electricalClass: data.electricalClass,
+      appliedPartType: data.appliedPartType,
       purchaseDate: toDate(data.purchaseDate),
       commissionedAt: toDate(data.commissionedAt),
       eolDate: toDate(data.eolDate),
