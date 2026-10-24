@@ -605,6 +605,7 @@ export async function getWorkOrderAnalytics(ctx: AccessContext, raw: unknown, op
         JOIN assets a ON a.id = w.asset_id
         JOIN equipment_models m ON m.id = a.model_id
         WHERE ${inPeriod(Prisma.sql`t.created_at`, p)} AND ${scope} AND ${fNoStatus}
+          AND NOT EXISTS (SELECT 1 FROM work_order_tasks c WHERE c.corrects_task_id = t.id)
         GROUP BY 1`;
       const ids = [...new Set([...rows.map((x) => x.user_id), ...minutes.map((x) => x.user_id)])];
       const names = await peopleNames(tx, ids);
@@ -778,7 +779,8 @@ export async function getReliabilityReport(ctx: AccessContext, raw: unknown, opt
       { asset_id: string; asset_tag: string; name: string; jobs: bigint; corrective: bigint; minutes: bigint }[]
     >`
       SELECT w.asset_id, a.asset_tag, a.name, count(*) AS jobs, count(*) FILTER (WHERE w.type = 'CORRECTIVE') AS corrective,
-             coalesce(sum((SELECT sum(t.minutes) FROM work_order_tasks t WHERE t.work_order_id = w.id)), 0) AS minutes
+             coalesce(sum((SELECT sum(t.minutes) FROM work_order_tasks t WHERE t.work_order_id = w.id
+               AND NOT EXISTS (SELECT 1 FROM work_order_tasks c WHERE c.corrects_task_id = t.id))), 0) AS minutes
       ${WO_FROM}
       WHERE w.status <> 'CANCELLED' AND ${inPeriod(Prisma.sql`w.created_at`, p)} AND ${scope} AND ${f}
       GROUP BY 1, 2, 3 HAVING count(*) >= 2 ORDER BY 5 DESC, 4 DESC LIMIT 10`;

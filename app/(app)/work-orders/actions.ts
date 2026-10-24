@@ -13,6 +13,8 @@ import {
   assignWorkOrder,
   cancelWorkOrder,
   completeWorkOrder,
+  correctWorkLine,
+  correctWorkOrder,
   holdWorkOrder,
   logWork,
   reopenWorkOrder,
@@ -196,6 +198,42 @@ export async function reopenAction(prev: WoFormState | null, form: FormData) {
     () => reopenWorkOrder(ctx, { id: str(form, "id"), reason: str(form, "reason") }),
     str(form, "id"),
     "reopened",
+    prev,
+  );
+}
+
+/** Correct the text of a completed job (diagnosis, work done, fault category). */
+export async function correctAction(prev: WoFormState | null, form: FormData) {
+  const ctx = await requireAccess();
+  return runThenShow(
+    () =>
+      correctWorkOrder(ctx, {
+        id: str(form, "id"),
+        diagnosis: str(form, "diagnosis"),
+        resolution: str(form, "resolution"),
+        failureCategory: str(form, "failureCategory"),
+        reason: str(form, "reason"),
+      }),
+    str(form, "id"),
+    "corrected",
+    prev,
+  );
+}
+
+/** Correct one line of the work log of a completed job. */
+export async function correctLineAction(prev: WoFormState | null, form: FormData) {
+  const ctx = await requireAccess();
+  return runThenShow(
+    () =>
+      correctWorkLine(ctx, {
+        id: str(form, "id"),
+        taskId: str(form, "taskId"),
+        description: str(form, "description"),
+        minutes: str(form, "minutes"),
+        reason: str(form, "reason"),
+      }),
+    str(form, "id"),
+    "line-corrected",
     prev,
   );
 }

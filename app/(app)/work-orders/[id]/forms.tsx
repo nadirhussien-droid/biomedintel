@@ -21,6 +21,8 @@ import {
   assignAction,
   cancelAction,
   completeAction,
+  correctAction,
+  correctLineAction,
   holdAction,
   logWorkAction,
   noteAction,
@@ -467,6 +469,136 @@ export function ReopenForm({ id }: { id: string }) {
           maxLength={500}
           error={err(state, "reason")}
         />
+      )}
+    </ActionForm>
+  );
+}
+
+/** Correct the text of a completed job. The old text is kept in the correction history. */
+export function CorrectJobForm({
+  id,
+  planned,
+  isRepair,
+  diagnosis,
+  resolution,
+  failureCategory,
+}: {
+  id: string;
+  planned: boolean;
+  isRepair: boolean;
+  diagnosis: string;
+  resolution: string;
+  failureCategory: string | null;
+}) {
+  return (
+    <ActionForm action={correctAction} id={id} label="Save correction">
+      {(state) => (
+        <>
+          <FieldShell
+            label={planned ? "Notes" : "Diagnosis — what was wrong"}
+            name="diagnosis"
+            error={err(state, "diagnosis")}
+          >
+            <textarea
+              id="corr-diagnosis"
+              name="diagnosis"
+              required
+              maxLength={2000}
+              defaultValue={diagnosis}
+              className={textarea}
+            />
+          </FieldShell>
+          <FieldShell
+            label={planned ? "Work done and findings" : "Work done and result"}
+            name="resolution"
+            error={err(state, "resolution")}
+          >
+            <textarea
+              id="corr-resolution"
+              name="resolution"
+              required
+              maxLength={2000}
+              defaultValue={resolution}
+              className={textarea}
+            />
+          </FieldShell>
+          {isRepair ? (
+            <SelectField
+              label="Fault category"
+              name="failureCategory"
+              id="corr-category"
+              defaultValue={failureCategory ?? ""}
+              error={err(state, "failureCategory")}
+            >
+              <option value="">Not recorded</option>
+              {FAILURE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {FAILURE_CATEGORY_LABELS[c]}
+                </option>
+              ))}
+            </SelectField>
+          ) : null}
+          <InputField
+            label="Why are you correcting this?"
+            name="reason"
+            id="corr-reason"
+            required
+            maxLength={500}
+            hint="Required. The old text is kept in the correction history. Safety test results cannot be changed here; ask a manager to reopen the job."
+            error={err(state, "reason")}
+          />
+        </>
+      )}
+    </ActionForm>
+  );
+}
+
+/** Correct one line of the work log of a completed job. */
+export function CorrectLineForm({
+  id,
+  taskId,
+  description,
+  minutes,
+}: {
+  id: string;
+  taskId: string;
+  description: string;
+  minutes: number;
+}) {
+  return (
+    <ActionForm action={correctLineAction} id={id} label="Save correction" variant="secondary">
+      {(state) => (
+        <>
+          <input type="hidden" name="taskId" value={taskId} />
+          <InputField
+            label="Work done"
+            name="description"
+            id={`line-desc-${taskId}`}
+            required
+            maxLength={1000}
+            defaultValue={description}
+            error={err(state, "description")}
+          />
+          <InputField
+            label="Minutes"
+            name="minutes"
+            id={`line-min-${taskId}`}
+            type="number"
+            min={1}
+            max={1440}
+            required
+            defaultValue={minutes}
+            error={err(state, "minutes")}
+          />
+          <InputField
+            label="Why are you correcting this?"
+            name="reason"
+            id={`line-reason-${taskId}`}
+            required
+            maxLength={500}
+            error={err(state, "reason")}
+          />
+        </>
       )}
     </ActionForm>
   );

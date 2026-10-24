@@ -334,6 +334,7 @@ model Organization {
   workOrders          WorkOrder[]
   workOrderEvents     WorkOrderEvent[]
   workOrderTasks      WorkOrderTask[]
+  workOrderCorrections WorkOrderCorrection[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
   problemReports      ProblemReport[]
@@ -786,6 +787,7 @@ model WorkOrder {
   department       Department               @relation(fields: [organizationId, hospitalId, departmentId], references: [organizationId, hospitalId, id], onDelete: Restrict)
   events           WorkOrderEvent[]
   tasks            WorkOrderTask[]
+  corrections      WorkOrderCorrection[]
   attachments      Attachment[]
   downtime         DowntimeEvent[]
   statusChanges    AssetStatusHistory[]
@@ -854,13 +856,39 @@ model WorkOrderTask {
   description    String
   minutes        Int
   performedById  String   @map("performed_by")
+  /// A correction: this line replaces the line it points at (which is kept).
+  correctsTaskId   String?  @map("corrects_task_id") @db.Uuid
+  correctedById    String?  @map("corrected_by")
+  correctionReason String?  @map("correction_reason")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder       @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
+  corrects     WorkOrderTask?  @relation("TaskCorrection", fields: [correctsTaskId], references: [id], onDelete: Restrict)
+  replacedBy   WorkOrderTask[] @relation("TaskCorrection")
+
+  @@index([organizationId, workOrderId, createdAt])
+  @@map("work_order_tasks")
+}
+
+/// One correction to a completed job (diagnosis, work done or fault category).
+/// Append-only: the old value is kept here, the job shows the corrected value.
+model WorkOrderCorrection {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  workOrderId    String   @map("work_order_id") @db.Uuid
+  field          String // DIAGNOSIS, RESOLUTION, FAILURE_CATEGORY
+  oldValue       String?  @map("old_value")
+  newValue       String?  @map("new_value")
+  reason         String
+  correctedById  String   @map("corrected_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   workOrder    WorkOrder    @relation(fields: [organizationId, workOrderId], references: [organizationId, id], onDelete: Restrict)
 
-  @@index([organizationId, workOrderId, createdAt])
-  @@map("work_order_tasks")
+  @@index([organizationId, workOrderId, createdAt], map: "work_order_corrections_job_idx")
+  @@map("work_order_corrections")
 }
 
 /// A photo on a work order. Stored in the database for now (decision of

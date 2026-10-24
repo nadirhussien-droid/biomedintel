@@ -43,6 +43,8 @@ import { pmCompleteSchema, type ChecklistItem, DO_NOT_USE_LABEL } from "@/lib/va
 import {
   assignSchema,
   completeSchema,
+  correctJobSchema,
+  correctWorkLineSchema,
   holdSchema,
   logWorkSchema,
   MAX_PHOTO_BYTES,
@@ -316,6 +318,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
         department: { select: { name: true } },
         events: { orderBy: { createdAt: "asc" } },
         tasks: { orderBy: { createdAt: "asc" } },
+        corrections: { orderBy: { createdAt: "asc" } },
         attachments: {
           orderBy: { createdAt: "asc" },
           select: { id: true, filename: true, mime: true, sizeBytes: true, width: true, height: true, createdAt: true },
@@ -354,6 +357,8 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
       wo.cancelledById,
       ...wo.events.map((e) => e.actorId),
       ...wo.tasks.map((t) => t.performedById),
+      ...wo.tasks.map((t) => t.correctedById),
+      ...wo.corrections.map((c) => c.correctedById),
       ...wo.checklistResults.map((r) => r.recordedById),
     ]);
 
@@ -361,12 +366,21 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
     const isAssignee = wo.assignedToId === ctx.user.id && can(ctx, "workorder.work");
     const open = OPEN.includes(wo.status);
     const candidates = manage && open ? await assigneeCandidates(tx, wo) : [];
-    const totalMinutes = wo.tasks.reduce((sum, t) => sum + t.minutes, 0);
+    // The work log shows each line as last corrected; earlier versions stay in the history.
+    const tasks = effectiveTasks(wo.tasks);
+    const totalMinutes = tasks.reduce((sum, t) => sum + t.minutes, 0);
+    const workedOnIt = wo.tasks.some((t) => t.performedById === ctx.user.id);
+    const mayCorrectJob =
+      wo.status === "COMPLETED" &&
+      (manage ||
+        (can(ctx, "workorder.work") &&
+          (wo.assignedToId === ctx.user.id || wo.completedById === ctx.user.id || workedOnIt)));
     const checklist = Array.isArray(wo.checklist) ? (wo.checklist as unknown as ChecklistItem[]) : null;
     // Instructions come from the approved plan version this job was made from.
     const snapshot = (wo.planRevision?.snapshot ?? null) as { instructions?: string | null } | null;
     return {
       ...wo,
+      tasks,
       checklistItems: checklist,
       planned: checklist !== null,
       instructions: snapshot?.instructions ?? null,
@@ -391,6 +405,7 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
         // Repair and retest jobs of a safety hold cannot be cancelled: the hold needs them.
         cancel: open && !wo.safetyHoldId && (manage || (wo.reportedById === ctx.user.id && wo.status === "REQUESTED")),
         reopen: manage && wo.status === "COMPLETED",
+        correct: mayCorrectJob,
         review: manage && wo.status === "COMPLETED" && wo.reviewedAt === null && wo.completedById !== ctx.user.id,
       },
     };
@@ -998,6 +1013,185 @@ export async function reviewWorkOrder(ctx: AccessContext, input: unknown) {
     if (r.count === 0) throw new ValidationError("This job has already been reviewed.");
     await addEvent(tx, ctx, wo.id, "REVIEWED");
     await auditWO(tx, ctx, "workorder.reviewed", wo, { number: wo.number });
+  });
+}
+
+// ─── Correcting a completed job ──────────────────────────────────────────────
+//
+// Decision of 24 Oct 2026: anyone who worked on a job (and managers) can
+// correct the TEXT of a completed job: the diagnosis, the work done, the fault
+// category and the lines of the work log. Every correction needs a reason and
+// keeps the old value. Safety test results, the outcome, the declaration and
+// the device status can NOT be changed this way: reopen the job instead.
+
+type TaskRow = {
+  id: string;
+  description: string;
+  minutes: number;
+  performedById: string;
+  createdAt: Date;
+  correctsTaskId: string | null;
+  correctedById: string | null;
+  correctionReason: string | null;
+};
+
+/** Lines of the work log as last corrected, in the order they were first logged. */
+export function effectiveTasks<T extends TaskRow>(rows: T[]) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const replaced = new Set(rows.map((r) => r.correctsTaskId).filter((x): x is string => Boolean(x)));
+  return rows
+    .filter((r) => !replaced.has(r.id))
+    .map((r) => {
+      let root = r;
+      const history: T[] = [];
+      while (root.correctsTaskId && byId.has(root.correctsTaskId)) {
+        root = byId.get(root.correctsTaskId)!;
+        history.push(root);
+      }
+      return {
+        ...r,
+        createdAt: root.createdAt, // when the work was first logged
+        corrected: r.correctsTaskId
+          ? {
+              byId: r.correctedById,
+              reason: r.correctionReason,
+              before: history.map((h) => ({ description: h.description, minutes: h.minutes })),
+            }
+          : null,
+      };
+    })
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+/** Managers, and the people who did or signed off the job. */
+async function requireMayCorrect(ctx: AccessContext, tx: Tx, wo: CoreWO, action: string) {
+  const worked = can(ctx, "workorder.work")
+    ? wo.assignedToId === ctx.user.id ||
+      wo.completedById === ctx.user.id ||
+      (await tx.workOrderTask.count({ where: { workOrderId: wo.id, performedById: ctx.user.id } })) > 0
+    : false;
+  if (!can(ctx, "workorder.manage") && !worked) {
+    await denied(ctx, wo.id, action, "did_not_work_on_this_job");
+    throw new AuthorizationError(action);
+  }
+}
+
+const FIELD_LABELS = { DIAGNOSIS: "diagnosis", RESOLUTION: "work done", FAILURE_CATEGORY: "fault category" } as const;
+
+export async function correctWorkOrder(ctx: AccessContext, input: unknown) {
+  if (!can(ctx, "workorder.work") && !can(ctx, "workorder.manage")) {
+    await requirePermission(ctx, "workorder.work", { entityType: "work_order" }); // audited denial
+  }
+  const data = parseInput(correctJobSchema, input);
+  return withTenant(tenant(ctx), async (tx) => {
+    const wo = await loadScoped(ctx, tx, data.id, "workorder.correct");
+    expectStatus(wo, ["COMPLETED"], "Only a completed job can be corrected. Other jobs can simply be edited.");
+    await requireMayCorrect(ctx, tx, wo, "workorder.correct");
+    const job = await tx.workOrder.findUniqueOrThrow({
+      where: { id: wo.id },
+      select: { type: true, diagnosis: true, resolution: true, failureCategory: true },
+    });
+    // Only repair jobs carry a fault category (also a database CHECK).
+    const newCategory = job.type === "CORRECTIVE" ? data.failureCategory : null;
+    const changes: { field: keyof typeof FIELD_LABELS; oldValue: string | null; newValue: string | null }[] = [];
+    if (data.diagnosis !== (job.diagnosis ?? "")) {
+      changes.push({ field: "DIAGNOSIS", oldValue: job.diagnosis, newValue: data.diagnosis });
+    }
+    if (data.resolution !== (job.resolution ?? "")) {
+      changes.push({ field: "RESOLUTION", oldValue: job.resolution, newValue: data.resolution });
+    }
+    if (job.type === "CORRECTIVE" && newCategory !== job.failureCategory) {
+      changes.push({ field: "FAILURE_CATEGORY", oldValue: job.failureCategory, newValue: newCategory });
+    }
+    if (changes.length === 0) throw new ValidationError("Nothing was changed. Edit a field to correct it.");
+    await tx.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        diagnosis: data.diagnosis,
+        resolution: data.resolution,
+        ...(job.type === "CORRECTIVE" ? { failureCategory: newCategory } : {}),
+        updatedById: ctx.user.id,
+      },
+    });
+    await tx.workOrderCorrection.createMany({
+      data: changes.map((c) => ({
+        organizationId: ctx.organization.id,
+        workOrderId: wo.id,
+        field: c.field,
+        oldValue: c.oldValue,
+        newValue: c.newValue,
+        reason: data.reason,
+        correctedById: ctx.user.id,
+      })),
+    });
+    const names = changes.map((c) => FIELD_LABELS[c.field]).join(", ");
+    await addEvent(tx, ctx, wo.id, "CORRECTED", { note: `Corrected ${names}: ${data.reason}` });
+    // Old and new text stay in the corrections table; the audit log records which fields only.
+    await auditWO(tx, ctx, "workorder.corrected", wo, {
+      number: wo.number,
+      fields: changes.map((c) => c.field),
+    });
+    await notify(tx, ctx, [wo.assignedToId, wo.completedById], {
+      type: "workorder.corrected",
+      title: `${wo.number} was corrected`,
+      body: `Corrected ${names}. ${data.reason}`,
+      link: `/work-orders/${wo.id}`,
+      entityType: "work_order",
+      entityId: wo.id,
+    });
+    return { changed: changes.length };
+  });
+}
+
+export async function correctWorkLine(ctx: AccessContext, input: unknown) {
+  if (!can(ctx, "workorder.work") && !can(ctx, "workorder.manage")) {
+    await requirePermission(ctx, "workorder.work", { entityType: "work_order" });
+  }
+  const data = parseInput(correctWorkLineSchema, input);
+  return withTenant(tenant(ctx), async (tx) => {
+    const wo = await loadScoped(ctx, tx, data.id, "workorder.correct_work_log");
+    expectStatus(wo, ["COMPLETED"], "Only a completed job can be corrected. Other jobs can log more work instead.");
+    await requireMayCorrect(ctx, tx, wo, "workorder.correct_work_log");
+    const line = await tx.workOrderTask.findFirst({ where: { id: data.taskId, workOrderId: wo.id } });
+    if (!line) throw new NotFoundError("Work log line");
+    if (await tx.workOrderTask.findFirst({ where: { correctsTaskId: line.id }, select: { id: true } })) {
+      throw new ValidationError("This line was corrected by someone else just now. Reload the page.");
+    }
+    if (line.description === data.description && line.minutes === data.minutes) {
+      throw new ValidationError("Nothing was changed. Edit the text or the minutes to correct this line.");
+    }
+    await tx.workOrderTask.create({
+      data: {
+        organizationId: ctx.organization.id,
+        workOrderId: wo.id,
+        description: data.description,
+        minutes: data.minutes,
+        performedById: line.performedById, // the work is still credited to the person who did it
+        correctsTaskId: line.id,
+        correctedById: ctx.user.id,
+        correctionReason: data.reason,
+        // Keeps the line where it was first logged, in the list and in reports by period.
+        // The time of the correction itself is on the job timeline.
+        createdAt: line.createdAt,
+      },
+    });
+    await addEvent(tx, ctx, wo.id, "WORK_LOG_CORRECTED", {
+      note: `Work log line corrected (${line.minutes} to ${data.minutes} min): ${data.reason}`,
+    });
+    await auditWO(tx, ctx, "workorder.work_log_corrected", wo, {
+      number: wo.number,
+      taskId: line.id,
+      minutesFrom: line.minutes,
+      minutesTo: data.minutes,
+    });
+    await notify(tx, ctx, [wo.assignedToId, wo.completedById], {
+      type: "workorder.corrected",
+      title: `${wo.number} work log was corrected`,
+      body: data.reason,
+      link: `/work-orders/${wo.id}`,
+      entityType: "work_order",
+      entityId: wo.id,
+    });
   });
 }
 

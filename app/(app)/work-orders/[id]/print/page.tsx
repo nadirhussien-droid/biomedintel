@@ -231,6 +231,13 @@ export default async function JobSheetPage({ params }: { params: Promise<{ id: s
           )}
         </section>
 
+        {wo.corrections.length ? (
+          <p className="mt-4 text-[8.5pt]">
+            This record was corrected {wo.corrections.length} time{wo.corrections.length === 1 ? "" : "s"} after
+            sign-off. The earlier text is kept in BiomedIntel.ai.
+          </p>
+        ) : null}
+
         <footer className="mt-6 border-t border-[#9aa9b8] pt-2 text-[8pt]">
           Printed {dateTime.format(new Date())} UTC from BiomedIntel.ai. Equipment record only — contains no patient
           information. The record in BiomedIntel.ai is the authoritative version.

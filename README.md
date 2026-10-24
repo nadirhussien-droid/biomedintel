@@ -228,6 +228,8 @@ Open **Work Orders** in the sidebar, or use **Report a fault** on an asset page.
 
 **Job sheet:** **Print job sheet** gives an A4 sheet with the work order number and the asset ID as Code 128 barcodes, so the technician can scan the device on site. The header shows the organisation name and, if the Organisation Administrator uploaded one (Admin → Hospital logo, optional), its logo. See `docs/JOB-SHEET-BRANDING.md`.
 
+**Corrections:** a completed job can be corrected without reopening it (text, fault category and work log), with a reason and a kept history. See `docs/WORK-ORDER-CORRECTIONS.md`.
+
 **AI model per hospital:** platform staff choose Haiku, Sonnet or Opus for each hospital on the Platform page; hospitals with no choice use the `AI_MODEL` default. See `docs/AI-MODEL.md`.
 
 **Help:** every page has a **Help** button with short steps for that page and the person's role, and a **Report a problem** form that reaches the Organisation Administrator (Admin → Problem reports). See `docs/HELP.md`.
