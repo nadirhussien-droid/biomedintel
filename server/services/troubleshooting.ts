@@ -485,15 +485,24 @@ async function retrievePassages(
       content: string;
       specificity: number;
       matched: number;
+      score: number;
       code_hit: boolean;
     }[]
   >`
-    WITH q AS (SELECT ${lexemes}::text[] AS lex)
+    WITH q AS (SELECT ${lexemes}::text[] AS lex),
+    pool AS (SELECT c.tsv FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
+               AND c.version_id = d.current_version_id
+             WHERE d.review_status = 'APPROVED' AND d.status = 'ACTIVE' AND ${documentVisibleSql(ctx)}),
+    total AS (SELECT count(*)::float8 AS n FROM pool),
+    -- Rare words in the manuals weigh more than common ones (see knowledge search).
+    weights AS (SELECT l AS lex, ln((total.n + 1) / ((SELECT count(*) FROM pool p WHERE l = ANY (tsvector_to_array(p.tsv))) + 1)) + 0.1 AS weight
+                  FROM q CROSS JOIN LATERAL unnest(q.lex) AS l CROSS JOIN total)
     SELECT c.id AS chunk_id, c.document_id, c.version_id, d.title, c.page_from, c.heading, c.content,
       (SELECT coalesce(max(CASE WHEN t.model_id = ${asset.modelId}::uuid THEN 3 WHEN t.category_id = ${asset.model.categoryId}::uuid THEN 2
                                 WHEN t.manufacturer_id = ${asset.model.manufacturerId}::uuid THEN 1 ELSE 0 END), 0)
          FROM knowledge_targets t WHERE t.document_id = d.id)::int AS specificity,
       (SELECT count(*) FROM unnest(tsvector_to_array(c.tsv)) l WHERE l = ANY (q.lex))::int AS matched,
+      (SELECT coalesce(sum(w.weight), 0) FROM weights w WHERE w.lex = ANY (tsvector_to_array(c.tsv)))::float8 AS score,
       ${codePatterns.length ? Prisma.sql`(upper(c.content) LIKE ANY (ARRAY[${Prisma.join(codePatterns)}]))` : Prisma.sql`false`} AS code_hit
     FROM knowledge_chunks c
     JOIN knowledge_documents d ON d.id = c.document_id AND c.version_id = d.current_version_id
@@ -503,10 +512,14 @@ async function retrievePassages(
            OR EXISTS (SELECT 1 FROM knowledge_targets t WHERE t.document_id = d.id
                       AND (t.model_id = ${asset.modelId}::uuid OR t.category_id = ${asset.model.categoryId}::uuid
                            OR t.manufacturer_id = ${asset.model.manufacturerId}::uuid)))
-    ORDER BY code_hit DESC, specificity DESC, matched DESC, c.chunk_no
+    ORDER BY code_hit DESC, specificity DESC, score DESC, matched DESC, c.chunk_no
     LIMIT 40`;
+  // A passage must share at least two meaningful words with the fault, so a
+  // vague description does not pull in unrelated manuals. A short description
+  // with only one or two meaningful words (e.g. "fuse blown") needs one.
+  const needed = lexemes.length <= 2 ? 1 : 2;
   return rows
-    .filter((r) => r.code_hit || r.matched >= 2)
+    .filter((r) => r.code_hit || r.matched >= needed)
     .slice(0, MAX_PASSAGES)
     .map((r, i) => ({
       label: `S${i + 1}`,

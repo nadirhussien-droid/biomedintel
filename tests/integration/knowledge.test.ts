@@ -526,6 +526,41 @@ describe("AI assistance", () => {
     ).toBeGreaterThan(0);
   });
 
+  it('a short fault description finds the matching passage ("Fuse blown" → the fuse section)', async () => {
+    // Found on staging (24 Oct 2026): a manual mentions "Fuse replacement" but never "blown".
+    process.env.AI_PROVIDER = "mock";
+    setAiProviderForTests(mockProvider);
+    const doc = await createDocument(
+      await amina(),
+      {
+        title: "Patient warmer service notes (fictional)",
+        docType: "SERVICE_MANUAL",
+        body: "# Fuse replacement\nDisconnect power. Qualified service technician only. Replace the mains fuse with the rating on the label, then perform a post-repair safety inspection (fictional).\n\n# Hose\nReplace the hose as needed (fictional).",
+        modelIds: [],
+        categoryIds: [],
+        manufacturerIds: [],
+      },
+      null,
+    );
+    await approveDocument(await james(), { id: doc.id, authorisation: "Fictional test", confirm: "on" });
+    // The search box: every word first; otherwise passages with some of the words, flagged as partial.
+    const all = await searchKnowledge(await amina(), { q: "fuse" });
+    expect(all.partial).toBe(false);
+    expect(all.passages.some((p) => p.document_id === doc.id)).toBe(true);
+    const some = await searchKnowledge(await amina(), { q: "fuse blown" });
+    expect(some.partial).toBe(true);
+    expect(some.passages.some((p) => p.document_id === doc.id)).toBe(true);
+    const unrelated = await searchKnowledge(await amina(), { q: "zebra crossing" });
+    expect(unrelated.passages.some((p) => p.document_id === doc.id)).toBe(false);
+    // IntellAssist retrieves the fuse passage for the two-word description.
+    const s3 = await startSession(await amina(), { assetId: fx.otherAsset, faultDescription: "Fuse blown" });
+    const r = await askAi(await amina(), { sessionId: s3.id });
+    expect(r.status).toBe("SUCCEEDED");
+    const req = await owner.aiRequest.findUniqueOrThrow({ where: { id: r.requestId } });
+    const chunks = await owner.knowledgeChunk.findMany({ where: { id: { in: req.retrievedChunkIds } } });
+    expect(chunks.some((c) => c.documentId === doc.id && /fuse/i.test(c.content))).toBe(true);
+  });
+
   it("prompt injection in a document cannot change the rules, invent citations, or produce a safety decision", async () => {
     const evil = await createDocument(
       await amina(),
