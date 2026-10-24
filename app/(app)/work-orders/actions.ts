@@ -178,6 +178,7 @@ export async function pmCompleteAction(prev: WoFormState | null, form: FormData)
         resolution: str(form, "resolution"),
         diagnosis: str(form, "diagnosis"),
         answers,
+        testEquipmentId: str(form, "testEquipmentId"),
         declaration: form.get("declaration") === "on",
       }),
     str(form, "id"),

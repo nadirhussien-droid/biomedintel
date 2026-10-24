@@ -39,6 +39,7 @@ import {
 } from "./work-order-core";
 import { onHoldRepairCompleted, onHoldRetestCompleted, placeSafetyHold } from "./safety-holds";
 import { localToday, isOnTime, fromDbDate } from "@/lib/pm/dates";
+import { requireUsableTestEquipment } from "./testing";
 import { pmCompleteSchema, type ChecklistItem, DO_NOT_USE_LABEL } from "@/lib/validation/pm";
 import {
   assignSchema,
@@ -343,6 +344,9 @@ export async function getWorkOrder(ctx: AccessContext, id: string) {
         },
         planRevision: { select: { revisionNo: true, snapshot: true } },
         safetyHold: { select: { id: true, status: true } },
+        testEquipment: {
+          select: { id: true, name: true, manufacturer: true, model: true, serialNumber: true, equipmentTag: true },
+        },
       },
     });
     const assetHold = await openSafetyHold(tx, wo.assetId);
@@ -789,10 +793,18 @@ export async function completeWorkOrder(ctx: AccessContext, input: unknown) {
       ? parsePlannedCompletion(input, checklist, { code: job.testStandardCode, version: job.testStandardVersion })
       : { ...parseInput(completeSchema, input), results: [] };
 
+    // Planned jobs and safety retests: electrical safety results are only trusted when the tool used is known
+    // and calibrated. (Repair jobs record a simple pass/fail and do not need a tool.)
+    const testEquipmentId =
+      checklist && c.electricalSafetyCheck !== "NOT_APPLICABLE"
+        ? await requireUsableTestEquipment(tx, raw.testEquipmentId)
+        : null;
+
     const now = new Date();
     const r = await tx.workOrder.updateMany({
       where: { id: wo.id, status: { in: ["IN_PROGRESS", "ON_HOLD"] }, assignedToId: ctx.user.id },
       data: {
+        testEquipmentId,
         status: "COMPLETED",
         diagnosis: c.diagnosis,
         resolution: c.resolution,

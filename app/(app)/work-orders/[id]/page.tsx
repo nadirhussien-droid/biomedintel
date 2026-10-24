@@ -7,6 +7,7 @@ import { NotFoundError } from "@/server/authz/errors";
 import { getWorkOrder } from "@/server/services/work-orders";
 import { can } from "@/server/authz/access";
 import { getWorkOrderParts } from "@/server/services/work-order-parts";
+import { listUsableTestEquipment } from "@/server/services/testing";
 import { sessionsFor } from "@/server/services/troubleshooting";
 import { TroubleshootingCard } from "@/components/stage9/troubleshooting-card";
 import { partOptions } from "@/server/services/inventory";
@@ -146,6 +147,17 @@ export default async function WorkOrderPage({
             >
               Print job sheet
             </Link>
+            {wo.status === "COMPLETED" &&
+            wo.planned &&
+            wo.electricalSafetyCheck &&
+            wo.electricalSafetyCheck !== "NOT_APPLICABLE" ? (
+              <Link
+                href={`/work-orders/${wo.id}/safety-report`}
+                className={`${linkButton} border-line-strong hover:bg-surface-sunken bg-white`}
+              >
+                Safety test report
+              </Link>
+            ) : null}
           </div>
         }
       />
@@ -339,6 +351,7 @@ export default async function WorkOrderPage({
                   id={wo.id}
                   items={wo.checklistItems}
                   standard={wo.testStandardCode ? `${wo.testStandardCode} ${wo.testStandardVersion}` : null}
+                  testEquipment={can(ctx, "testing.view") ? await listUsableTestEquipment(ctx) : []}
                 />
               ) : (
                 <CompleteForm id={wo.id} />

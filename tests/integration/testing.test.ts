@@ -155,3 +155,38 @@ describe("test equipment and calibration", () => {
     await expect(listTestEquipment(reporter)).rejects.toBeInstanceOf(AuthorizationError);
   });
 });
+
+describe("test equipment on safety test jobs", () => {
+  it("only a registered, in-use, calibrated tool can be used for electrical safety checks", async () => {
+    const { withTenant } = await import("@/server/db/tenant");
+    const { requireUsableTestEquipment } = await import("@/server/services/testing");
+    const ctx = await amina();
+    const check = (id: unknown) =>
+      withTenant({ userId: ctx.user.id, organizationId: ctx.organization.id }, (tx) =>
+        requireUsableTestEquipment(tx, id),
+      );
+    await expect(check("")).rejects.toBeInstanceOf(ValidationError);
+    const none = await createTestEquipment(ctx, equipment());
+    await expect(check(none.id)).rejects.toBeInstanceOf(ValidationError); // no calibration yet
+    const failed = await createTestEquipment(ctx, equipment());
+    await addCalibration(ctx, cal(failed.id, { result: "FAIL" }));
+    await expect(check(failed.id)).rejects.toBeInstanceOf(ValidationError);
+    const old = await createTestEquipment(ctx, equipment());
+    await addCalibration(ctx, cal(old.id, { calibratedOn: "2024-01-10" }));
+    await expect(check(old.id)).resolves.toBe(old.id); // overdue is allowed, and flagged on the report
+    const good = await createTestEquipment(ctx, equipment());
+    await addCalibration(ctx, cal(good.id));
+    await expect(check(good.id)).resolves.toBe(good.id);
+    await updateTestEquipment(
+      ctx,
+      good.id,
+      equipment({ serialNumber: (await getTestEquipment(ctx, good.id)).serialNumber, status: "OUT_OF_SERVICE" }),
+    );
+    await expect(check(good.id)).rejects.toBeInstanceOf(ValidationError);
+    const david = await contextFor("david.mutua@highland.example");
+    const theirs = await withTenant({ userId: david.user.id, organizationId: david.organization.id }, (tx) =>
+      requireUsableTestEquipment(tx, old.id).catch((e) => e),
+    );
+    expect(theirs).toBeInstanceOf(ValidationError); // another organisation cannot use it
+  });
+});

@@ -6,7 +6,7 @@
 // the certificate as a PDF. Records and certificates are never changed or
 // deleted; a mistake is corrected by adding a new record. Everything is audited.
 import { createHash } from "node:crypto";
-import { withTenant } from "../db/tenant";
+import { withTenant, type Tx } from "../db/tenant";
 import { audit } from "../audit/audit";
 import { requirePermission, type AccessContext } from "../authz/access";
 import { NotFoundError, ValidationError } from "../authz/errors";
@@ -331,5 +331,107 @@ export async function readCertificate(ctx: AccessContext, recordId: string, how:
       request: ctx.request,
     });
     return { filename: f.filename, content: f.content };
+  });
+}
+
+/**
+ * The test equipment for a job's electrical safety checks. It must exist in this
+ * organisation, be in use, and have a calibration on record that did not fail.
+ * An overdue calibration is allowed (the safety report says so clearly).
+ * Runs inside the caller's transaction.
+ */
+export async function requireUsableTestEquipment(tx: Tx, id: unknown): Promise<string> {
+  if (typeof id !== "string" || !UUID.test(id))
+    throw new ValidationError("Choose the test equipment you used for the electrical safety checks.", {
+      testEquipmentId: ["Required"],
+    });
+  const item = await tx.testEquipment.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
+      calibrations: {
+        orderBy: [{ calibratedOn: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: { dueOn: true, result: true },
+      },
+    },
+  });
+  if (!item) throw new ValidationError("That test equipment was not found.", { testEquipmentId: ["Unknown"] });
+  if (item.status !== "IN_USE")
+    throw new ValidationError("That test equipment is not in use. Choose another tool.", {
+      testEquipmentId: ["Not in use"],
+    });
+  const latest = item.calibrations[0]
+    ? { dueOn: day(item.calibrations[0].dueOn), result: item.calibrations[0].result }
+    : null;
+  const state = calibrationState(latest);
+  if (state === "NOT_CALIBRATED")
+    throw new ValidationError("That test equipment has no calibration recorded. Add its calibration first.", {
+      testEquipmentId: ["No calibration recorded"],
+    });
+  if (state === "FAILED")
+    throw new ValidationError("That test equipment failed its last calibration and must not be used.", {
+      testEquipmentId: ["Failed calibration"],
+    });
+  return item.id;
+}
+
+/** In-use tools that can be chosen for a job (name and calibration state), for the sign-off form. */
+export async function listUsableTestEquipment(ctx: AccessContext) {
+  const all = await listTestEquipment(ctx);
+  return all
+    .filter((i) => i.status === "IN_USE" && (i.state === "CURRENT" || i.state === "DUE_SOON" || i.state === "OVERDUE"))
+    .map((i) => ({
+      id: i.id,
+      label: `${i.name} (${i.manufacturer} ${i.model}, serial ${i.serialNumber})`,
+      state: i.state,
+      dueOn: i.latest?.dueOn ?? null,
+    }));
+}
+
+/**
+ * The calibration that was in force for a tool on a given day: the latest record
+ * made on or before that day. Used by the safety test report. Callers have
+ * already been allowed to see the job, so no extra permission is checked here;
+ * row-level security still limits everything to the organisation.
+ */
+export async function calibrationInForce(ctx: AccessContext, testEquipmentId: string, onDay: string) {
+  return withTenant(tenant(ctx), async (tx) => {
+    const r = await tx.calibrationRecord.findFirst({
+      where: { testEquipmentId, calibratedOn: { lte: new Date(`${onDay}T00:00:00Z`) } },
+      orderBy: [{ calibratedOn: "desc" }, { createdAt: "desc" }],
+      select: {
+        calibratedOn: true,
+        dueOn: true,
+        certificateNumber: true,
+        laboratory: true,
+        accreditation: true,
+        result: true,
+      },
+    });
+    if (!r) return null;
+    return {
+      calibratedOn: day(r.calibratedOn),
+      dueOn: day(r.dueOn),
+      certificateNumber: r.certificateNumber,
+      laboratory: r.laboratory,
+      accreditation: r.accreditation,
+      result: r.result,
+      expiredAtTest: day(r.dueOn) < onDay,
+    };
+  });
+}
+
+/** The next due date of the schedule a planned job belongs to, if it has one and it is later than this job. */
+export async function nextScheduledDue(ctx: AccessContext, occurrenceId: string | null) {
+  if (!occurrenceId) return null;
+  return withTenant(tenant(ctx), async (tx) => {
+    const current = await tx.pmOccurrence.findUnique({
+      where: { id: occurrenceId },
+      select: { seq: true, dueOn: true, schedule: { select: { nextDueOn: true, nextSeq: true, status: true } } },
+    });
+    if (!current || current.schedule.nextSeq <= current.seq) return null;
+    return day(current.schedule.nextDueOn);
   });
 }

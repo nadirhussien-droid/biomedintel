@@ -776,6 +776,8 @@ model WorkOrder {
   checklist             Json?
   /// Stage 6: test standard and version that apply to this job (copied, so later changes never rewrite history).
   testStandardId        String?           @map("test_standard_id") @db.Uuid
+  /// The safety analyser or other tool used for the electrical safety checks.
+  testEquipmentId       String?           @map("test_equipment_id") @db.Uuid
   testStandardCode      String?           @map("test_standard_code")
   testStandardVersion   String?           @map("test_standard_version")
   /// Stage 6: the safety hold this repair or retest job belongs to.
@@ -784,6 +786,7 @@ model WorkOrder {
   createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  testEquipment TestEquipment? @relation(fields: [organizationId, testEquipmentId], references: [organizationId, id], onDelete: Restrict)
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   asset            Asset                    @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
   hospital         Hospital                 @relation(fields: [organizationId, hospitalId], references: [organizationId, id], onDelete: Restrict)
@@ -2564,6 +2567,7 @@ model TestEquipment {
 
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   calibrations CalibrationRecord[]
+  workOrders   WorkOrder[]
 
   @@unique([organizationId, id])
   @@index([organizationId, status], map: "test_equipment_org_status_idx")
