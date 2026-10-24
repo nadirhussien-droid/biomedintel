@@ -3,12 +3,14 @@
 Page: **Equipment Assets → Upload many** (`/assets/import`). Open to roles that can both register assets and add to the catalog (Organisation Administrator, Engineering Manager, Technician).
 
 ## Steps
+
 1. Download the template (or use an export from another system) and fill it in. Accepted: `.xlsx` and `.csv`, up to 1,000 assets and 3 MB. Old `.xls` files must be saved as `.xlsx` first.
 2. Choose the hospital and department, then the file.
-3. **Preview.** Nothing is saved. Each row shows *Will be added*, *Already there* (skipped) or *Problem*, with the reason.
+3. **Preview.** Nothing is saved. Each row shows _Will be added_, _Already there_ (skipped) or _Problem_, with the reason.
 4. Tick the authorisation box and confirm. The batch is audited (`asset.bulk_imported`: file name, counts, authorisation) and each asset has its normal `asset.created` entry.
 
 ## Rules
+
 - The Asset ID is kept exactly as written (capitals). An ID already in the register is skipped, so the same file can be uploaded again safely.
 - Missing manufacturers, categories, models and rooms are created automatically (audited like manual additions). Names match ignoring capital letters.
 - Only Asset ID, Manufacturer, Model and Category are needed. A missing name uses the category; a missing manufacturer becomes "Unknown"; a missing model "Not specified"; a missing category "Uncategorised".
