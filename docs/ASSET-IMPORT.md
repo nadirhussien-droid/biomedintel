@@ -1,6 +1,6 @@
 # Bulk upload of equipment (24 Oct 2026)
 
-Page: **Equipment Assets → Upload many** (`/assets/import`). Open to roles that can both register assets and add to the catalog (Organisation Administrator, Engineering Manager, Technician).
+Page: **Equipment Assets → Upload assets** (`/assets/import`). Open to roles that can both register assets and add to the catalog (Organisation Administrator, Engineering Manager, Technician).
 
 ## Steps
 

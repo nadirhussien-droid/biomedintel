@@ -131,7 +131,7 @@ export default async function AssetRegisterPage({ searchParams }: { searchParams
                 href="/assets/import"
                 className={`${linkButton} border-line-strong text-navy-900 hover:bg-surface-sunken bg-white`}
               >
-                Upload many
+                Upload assets
               </Link>
             ) : null}
             {can(ctx, "asset.create") ? (
