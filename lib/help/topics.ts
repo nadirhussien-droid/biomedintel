@@ -143,7 +143,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Search by asset ID, name or serial number, and narrow with the filters.",
       "Open a device to see its details, jobs and maintenance.",
-      "**Export register** gives the current list as **Excel**, **PDF** or **CSV**.",
+      "**Export register** gives the current list as **Excel** or **PDF**.",
     ],
   },
   {
@@ -203,7 +203,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Choose the **Period** and any filters, then press **Show**.",
       "Where a report shows **How these figures are calculated**, it explains each number.",
-      "**Export** gives the report as **Excel** (to work with the numbers), **PDF** (to print or share) or **CSV**.",
+      "**Export** gives the report as **Excel** (to work with the numbers) or **PDF** (to print or share).",
     ],
   },
   {

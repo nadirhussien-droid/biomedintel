@@ -171,13 +171,9 @@ export function Definitions({ items, footer }: { items: [string, ReactNode][]; f
 const linkButton = "inline-flex min-h-11 items-center justify-center rounded-md border px-4 text-sm font-semibold";
 
 /**
- * CSV download. Deliberately a plain <a>, never a prefetching <Link>:
- * viewing a page must never trigger an (audited) export.
- */
-/**
- * Download buttons for one export: Excel and PDF for reading and sharing, CSV
- * for moving data into other systems. Plain <a download> links (never a
- * prefetching <Link>); each link names its export for screen readers.
+ * Download buttons for one export: Excel (to work with the numbers) and PDF (to print or share).
+ * Plain <a download> links, never a prefetching <Link>: viewing a page must never trigger an
+ * (audited) export. Each link names its export for screen readers.
  */
 export function ExportFormats({ href, label = "Export" }: { href: string; label?: string }) {
   const join = href.includes("?") ? "&" : "?";
@@ -190,9 +186,6 @@ export function ExportFormats({ href, label = "Export" }: { href: string; label?
       </a>
       <a href={`${href}${join}format=pdf`} download className={button} aria-label={`${label} as PDF`}>
         PDF
-      </a>
-      <a href={href} download className={button} aria-label={`${label} as CSV`}>
-        CSV
       </a>
     </div>
   );
