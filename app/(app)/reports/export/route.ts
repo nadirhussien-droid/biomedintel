@@ -17,10 +17,14 @@ export async function GET(request: Request) {
   const format = parseFormat(params.format);
   delete params.report;
   delete params.format;
+  const inline = params.inline === "1";
+  delete params.inline;
   try {
     const file = await exportAnalytics(ctx, report, params, format);
     const stamp = new Date().toISOString().slice(0, 10);
-    return exportResponse(file, exportFilename(`biomedintel-${report}-${ctx.organization.slug}-${stamp}`, format));
+    return exportResponse(file, exportFilename(`biomedintel-${report}-${ctx.organization.slug}-${stamp}`, format), {
+      inline,
+    });
   } catch (error) {
     if (error instanceof AuthorizationError) return new Response("Not permitted", { status: 403 });
     if (error instanceof NotFoundError) return new Response("Not found", { status: 404 });

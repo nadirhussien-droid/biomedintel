@@ -20,12 +20,14 @@ const csp = [
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   // Camera: this site only (optional barcode scanning, asked only when the user taps "Start camera").
   { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
   ...(isDev ? [] : [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" }]),
 ];
+
+// The three export downloads may be shown inside our own export preview page (same site only).
+const EXPORT_PATHS = "reports/export|assets/export|maintenance/reports/export";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -37,8 +39,21 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // No page may be framed by another site. Export downloads may be framed by this site only
+      // (for the preview before download).
+      { source: `/((?!${EXPORT_PATHS}).*)`, headers: [{ key: "X-Frame-Options", value: "DENY" }] },
+      {
+        source: `/:path(${EXPORT_PATHS})`,
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "default-src 'none'; frame-ancestors 'self'" },
+        ],
+      },
       // Stored knowledge files set their own, stricter policy (see app/(app)/knowledge/files).
-      { source: "/((?!knowledge/files/).*)", headers: [{ key: "Content-Security-Policy", value: csp }] },
+      {
+        source: `/((?!knowledge/files/|${EXPORT_PATHS}).*)`,
+        headers: [{ key: "Content-Security-Policy", value: csp }],
+      },
     ];
   },
 };

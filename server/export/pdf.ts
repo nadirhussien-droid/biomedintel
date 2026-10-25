@@ -8,6 +8,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import type { Letterhead } from "@/lib/validation/letterhead";
+import { footerLines, headerLines } from "../services/organization-letterhead";
 import { cellText, friendlyTime, type Cell, type ChartSpec, type ExportDoc } from "./document";
 
 /** Very long tables are cut in the PDF (with a note); Excel and CSV carry every row. */
@@ -29,7 +31,7 @@ function display(c: Cell): string {
 
 export async function toPdf(
   doc: ExportDoc,
-  opts: { exportedBy: string; exportedAt: Date; logo?: { content: Uint8Array } | null },
+  opts: { exportedBy: string; exportedAt: Date; logo?: { content: Uint8Array } | null; letterhead?: Letterhead | null },
 ): Promise<Buffer> {
   const wide = Math.max(0, ...doc.sections.map((s) => s.columns?.length ?? 0)) > 6;
   const pdf = new PDFDocument({
@@ -72,19 +74,25 @@ export async function toPdf(
       // An unreadable logo never stops the report.
     }
   }
-  pdf
-    .font(bold)
-    .fontSize(15)
-    .fillColor(NAVY)
-    .text(safe(doc.organization), textX, y, { width: width - (textX - left) });
+  const contact = headerLines(opts.letterhead ?? null);
+  const textW = contact.length ? (width - (textX - left)) * 0.55 : width - (textX - left);
+  pdf.font(bold).fontSize(15).fillColor(NAVY).text(safe(doc.organization), textX, y, { width: textW });
   pdf
     .font(regular)
     .fontSize(11)
     .fillColor("black")
-    .text(safe(doc.title), textX, pdf.y + 2, {
-      width: width - (textX - left),
-    });
-  y = Math.max(pdf.y, y + 42) + 8;
+    .text(safe(doc.title), textX, pdf.y + 2, { width: textW });
+  let headerBottom = Math.max(pdf.y, y + 42);
+  if (contact.length) {
+    // Contact details sit on the right, like a letterhead.
+    const cx = left + width - (width - (textX - left)) * 0.42;
+    const cw = left + width - cx;
+    pdf.font(regular).fontSize(8).fillColor("#333333");
+    const block = safe(contact.join("\n"));
+    pdf.text(block, cx, y, { width: cw, align: "right" });
+    headerBottom = Math.max(headerBottom, pdf.y);
+  }
+  y = headerBottom + 8;
   pdf
     .moveTo(left, y)
     .lineTo(left + width, y)
@@ -348,6 +356,14 @@ export async function toPdf(
     const savedBottom = pdf.page.margins.bottom;
     pdf.page.margins.bottom = 0; // writing in the margin must not add a page
     const fy = pdf.page.height - 32;
+    const extra = footerLines(opts.letterhead ?? null);
+    if (extra.length) {
+      pdf
+        .font(regular)
+        .fontSize(7)
+        .fillColor("#444444")
+        .text(safe(extra.join("   |   ")), left, fy - 14, { width, lineBreak: false, ellipsis: true });
+    }
     pdf
       .moveTo(left, fy - 4)
       .lineTo(left + width, fy - 4)

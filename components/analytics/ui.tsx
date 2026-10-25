@@ -176,15 +176,15 @@ const linkButton = "inline-flex min-h-11 items-center justify-center rounded-md 
  * (audited) export. Each link names its export for screen readers.
  */
 export function ExportFormats({ href, label = "Export" }: { href: string; label?: string }) {
-  const join = href.includes("?") ? "&" : "?";
   const button = `${linkButton} border-line-strong text-navy-900 bg-white`;
+  const preview = (format: "xlsx" | "pdf") => `/export-preview?to=${encodeURIComponent(href)}&format=${format}`;
   return (
     <div role="group" aria-label={label} className="flex flex-wrap items-center gap-2">
       <span className="text-ink-muted text-sm font-semibold">{label}:</span>
-      <a href={`${href}${join}format=xlsx`} download className={button} aria-label={`${label} as Excel`}>
+      <a href={preview("xlsx")} className={button} aria-label={`${label} as Excel (preview first)`}>
         Excel
       </a>
-      <a href={`${href}${join}format=pdf`} download className={button} aria-label={`${label} as PDF`}>
+      <a href={preview("pdf")} className={button} aria-label={`${label} as PDF (preview first)`}>
         PDF
       </a>
     </div>

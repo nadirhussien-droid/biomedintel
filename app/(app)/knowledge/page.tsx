@@ -5,6 +5,7 @@ import { can } from "@/server/authz/access";
 import { HIT_END, HIT_START, knowledgeOptions, searchKnowledge } from "@/server/services/knowledge";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardTitle } from "@/components/ui/card";
+import { ClosedList } from "@/components/ui/closed-list";
 import { Empty, Pager, fmtDate, recordLink, rowCls, tableHead, td, th } from "@/components/analytics/ui";
 import { DocTag } from "@/components/stage9/tags";
 import { DOC_TYPES, DOC_TYPE_LABELS } from "@/lib/validation/knowledge";
@@ -40,6 +41,10 @@ export default async function KnowledgePage({ searchParams }: { searchParams: Se
   const raw: Record<string, string | undefined> = {};
   for (const k of ["q", "type", "manufacturer", "model", "category", "code", "review", "status", "page"])
     raw[k] = first(sp[k]);
+  // The list stays closed until someone searches, filters or asks for the full list.
+  const open =
+    first(sp.all) === "1" ||
+    ["q", "type", "manufacturer", "model", "category", "code", "review", "status", "page"].some((k) => first(sp[k]));
   const [r, options] = await Promise.all([searchKnowledge(ctx, raw), knowledgeOptions(ctx)]);
   const q = r.q;
   const href = (page: number) => {
@@ -245,7 +250,13 @@ export default async function KnowledgePage({ searchParams }: { searchParams: Se
 
       <Card>
         <CardTitle>Documents ({r.total})</CardTitle>
-        {r.documents.length === 0 ? (
+        {!open ? (
+          <ClosedList
+            title="Search or choose a filter to see documents."
+            detail={`Your knowledge base holds ${r.total} ${r.total === 1 ? "document" : "documents"}. Type keywords or an error code above, or`}
+            showAllHref="/knowledge?all=1"
+          />
+        ) : r.documents.length === 0 ? (
           <Empty>No documents match. Try fewer words or clear the filters.</Empty>
         ) : (
           <div
@@ -298,7 +309,7 @@ export default async function KnowledgePage({ searchParams }: { searchParams: Se
             </table>
           </div>
         )}
-        <Pager page={r.page} pageCount={r.pageCount} href={href} />
+        {open ? <Pager page={r.page} pageCount={r.pageCount} href={href} /> : null}
       </Card>
     </>
   );

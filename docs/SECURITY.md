@@ -259,7 +259,7 @@ Also checked, with no change needed: cookies are HttpOnly, Secure in production 
 - Every input validated with Zod on the server; ids must be UUIDs before they reach the database.
 - Prisma parameterises every query; the few raw queries use tagged templates (parameterised).
 - React escapes output; no `dangerouslySetInnerHTML`.
-- Security headers on every response: Content-Security-Policy, X-Frame-Options DENY, frame-ancestors 'none', nosniff, Referrer-Policy, Permissions-Policy, HSTS in production. `X-Powered-By` removed.
+- Security headers on every response: Content-Security-Policy, X-Frame-Options DENY (SAMEORIGIN only for the three export downloads, so the preview page can show them), frame-ancestors 'none', nosniff, Referrer-Policy, Permissions-Policy, HSTS in production. `X-Powered-By` removed.
 - Server Actions are POST-only with Next.js origin checks; Better Auth checks `trustedOrigins`.
 - Secrets live only in environment variables, validated at start-up; `.env*` is git-ignored except `.env.example`.
 
