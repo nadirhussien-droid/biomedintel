@@ -358,6 +358,7 @@ model Organization {
   testEquipment        TestEquipment[]
   calibrationRecords   CalibrationRecord[]
   labourRates          LabourRate[]
+  letterheads          OrganizationLetterhead[]
   calibrationCertificates CalibrationCertificate[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
@@ -2659,4 +2660,23 @@ model LabourRate {
 
   @@index([organizationId, userId, effectiveFrom])
   @@map("labour_rates")
+}
+
+/// Contact details printed on exported reports. Append-only: the newest row is current.
+model OrganizationLetterhead {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  address        String?
+  email          String?
+  phone          String?
+  website        String?
+  registration   String?
+  note           String?
+  changedById    String   @map("changed_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("organization_letterheads")
 }

@@ -5,6 +5,8 @@
 // sorting, filtering and sums work. Text is always written as text: a cell that
 // starts with "=" is stored as a string and never becomes a formula.
 import ExcelJS from "exceljs";
+import type { Letterhead } from "@/lib/validation/letterhead";
+import { footerLines, headerLines } from "../services/organization-letterhead";
 import { DATE_ONLY, friendlyTime, type Cell, type ExportDoc } from "./document";
 
 const NAVY = "FF102D46";
@@ -21,7 +23,10 @@ function value(c: Cell): string | number | Date | null {
   return c;
 }
 
-export async function toXlsx(doc: ExportDoc, opts: { exportedBy: string; exportedAt: Date }): Promise<Buffer> {
+export async function toXlsx(
+  doc: ExportDoc,
+  opts: { exportedBy: string; exportedAt: Date; letterhead?: Letterhead | null },
+): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "BiomedIntel.ai";
   wb.created = opts.exportedAt;
@@ -37,6 +42,8 @@ export async function toXlsx(doc: ExportDoc, opts: { exportedBy: string; exporte
   const title = ws.addRow([doc.title]);
   title.font = { bold: true, size: 14, color: { argb: NAVY } };
   ws.addRow([doc.organization]).font = { bold: true, size: 11 };
+  for (const line of headerLines(opts.letterhead ?? null))
+    ws.addRow([line]).font = { size: 9, color: { argb: "FF444444" } };
   for (const [k, v] of doc.meta) {
     if (k === "Report" || k === "Organisation") continue; // already shown as the title lines
     const r = ws.addRow([k.replace(" (UTC)", ""), friendlyTime(v)]);
@@ -49,6 +56,7 @@ export async function toXlsx(doc: ExportDoc, opts: { exportedBy: string; exporte
   ]);
   ex.getCell(1).font = { bold: true };
   ws.addRow(["Equipment records only. Contains no patient information."]).font = { italic: true, size: 9 };
+  for (const line of footerLines(opts.letterhead ?? null)) ws.addRow([line]).font = { italic: true, size: 9 };
 
   let firstTable: { headerRow: number; lastRow: number; cols: number } | null = null;
   let tables = 0;

@@ -12,11 +12,14 @@ export async function GET(request: Request) {
   const params = Object.fromEntries(new URL(request.url).searchParams.entries());
   const format = parseFormat(params.format);
   delete params.format;
+  const inline = params.inline === "1";
+  delete params.inline;
   try {
     const file = await exportPm(ctx, params, format);
     return exportResponse(
       file,
       exportFilename(`biomedintel-pm-${ctx.organization.slug}-${file.from}-to-${file.to}`, format),
+      { inline },
     );
   } catch (error) {
     if (error instanceof AuthorizationError) return new Response("Not permitted", { status: 403 });

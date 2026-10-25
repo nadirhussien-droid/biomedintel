@@ -44,7 +44,12 @@ function Kpi({
   );
 }
 
-export default async function MaintenanceOverview() {
+export default async function MaintenanceOverview({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const showRuns = (await searchParams).runs === "1";
   const ctx = await requireAccess();
   const [o, runs] = await Promise.all([getPmOverview(ctx), listGenerationRuns(ctx, 8)]);
   const month = `${formatDateOnly(o.period.from)} – ${formatDateOnly(o.period.to)}`;
@@ -136,7 +141,18 @@ export default async function MaintenanceOverview() {
           work order.
         </p>
         {can(ctx, "pm.generate") ? <RunGenerationForm /> : null}
-        {runs.length ? (
+        {!showRuns ? (
+          <p className="text-sm">
+            {runs.length
+              ? `${runs.length} recent ${runs.length === 1 ? "run" : "runs"}. `
+              : "No generation has run yet. "}
+            {runs.length ? (
+              <Link href="/maintenance?runs=1" className="font-semibold text-teal-700 hover:underline">
+                Show run history
+              </Link>
+            ) : null}
+          </p>
+        ) : runs.length ? (
           <div
             className="overflow-x-auto"
             tabIndex={0}
@@ -172,6 +188,13 @@ export default async function MaintenanceOverview() {
         ) : (
           <p className="text-ink-muted text-sm">No generation has run yet.</p>
         )}
+        {showRuns ? (
+          <p className="text-sm">
+            <Link href="/maintenance" className="font-semibold text-teal-700 hover:underline">
+              Hide run history
+            </Link>
+          </p>
+        ) : null}
       </Card>
     </>
   );

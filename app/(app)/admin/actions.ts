@@ -16,6 +16,7 @@ import {
   createHospital,
   resetMemberMfa,
 } from "@/server/services/organization-admin";
+import { setLetterhead } from "@/server/services/organization-letterhead";
 
 const str = (form: FormData, key: string) => {
   const v = form.get(key);
@@ -98,4 +99,22 @@ export async function addMemberAction(
   return result.ok
     ? { ok: true, message: result.message, data: { temporaryPassword: result.data?.temporaryPassword ?? null } }
     : result;
+}
+
+export async function setLetterheadAction(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const ctx = await requireAccess();
+  const result = await runAction(
+    () =>
+      setLetterhead(ctx, {
+        address: str(form, "address"),
+        email: str(form, "email"),
+        phone: str(form, "phone"),
+        website: str(form, "website"),
+        registration: str(form, "registration"),
+        note: str(form, "note"),
+      }),
+    "Contact details saved. They now print on reports.",
+  );
+  if (result.ok) revalidatePath("/admin");
+  return { ...result, data: undefined } as ActionResult;
 }

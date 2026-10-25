@@ -45,7 +45,7 @@ export default async function setup() {
     // never for the application role, and only in this _test database.
     await db.$executeRawUnsafe(`
       ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate;
-      TRUNCATE audit_logs, labour_rates, calibration_certificates, calibration_records, test_equipment, notifications, ai_citations, ai_suggestions, ai_requests, troubleshooting_entries,
+      TRUNCATE audit_logs, organization_letterheads, labour_rates, calibration_certificates, calibration_records, test_equipment, notifications, ai_citations, ai_suggestions, ai_requests, troubleshooting_entries,
                troubleshooting_sessions, troubleshooting_counters, ai_settings, knowledge_error_codes, knowledge_chunks,
                knowledge_files, knowledge_versions, knowledge_targets, knowledge_documents, stock_movements, stock_levels, part_reservations, purchase_request_lines,
                purchase_requests, external_services, warranty_claim_events, warranty_claims, part_suppliers, part_compatibility,

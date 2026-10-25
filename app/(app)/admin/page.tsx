@@ -5,6 +5,7 @@ import { can } from "@/server/authz/access";
 import { ROLE_LABELS, MEMBERSHIP_ROLES } from "@/server/authz/roles";
 import { listAuditLogs, listHospitals, listMembers } from "@/server/services/organization-admin";
 import { getLogoInfo } from "@/server/services/organization-logo";
+import { getLetterhead } from "@/server/services/organization-letterhead";
 import { listProblemReports } from "@/server/services/problem-reports";
 import { PROBLEM_KIND_LABELS } from "@/lib/validation/problem-reports";
 import { resolveProblemAction } from "../help/actions";
@@ -13,6 +14,7 @@ import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
 import { archiveDepartmentAction, archiveHospitalAction } from "./actions";
 import { LogoForm } from "./logo-form";
+import { LetterheadForm } from "./letterhead-form";
 import { AddMemberForm, ChangeRoleForm, CreateDepartmentForm, CreateHospitalForm, ResetMfaForm } from "./forms";
 
 export const metadata: Metadata = { title: "User and Organization Administration" };
@@ -26,11 +28,12 @@ export default async function AdminPage() {
   const manage = can(ctx, "hospital.create");
   const manageLogo = can(ctx, "logo.manage");
   const manageFeedback = can(ctx, "feedback.manage");
-  const [hospitals, members, auditLogs, logo, problems] = await Promise.all([
+  const [hospitals, members, auditLogs, logo, letterhead, problems] = await Promise.all([
     listHospitals(ctx),
     listMembers(ctx),
     listAuditLogs(ctx, 40),
     manageLogo ? getLogoInfo(ctx) : Promise.resolve(null),
+    manageLogo ? getLetterhead(ctx) : Promise.resolve(null),
     manageFeedback ? listProblemReports(ctx) : Promise.resolve(null),
   ]);
   const roleOptions = MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
@@ -234,6 +237,17 @@ export default async function AdminPage() {
             one, job sheets show the name only.
           </p>
           <LogoForm hasLogo={!!logo} version={logo?.sha256.slice(0, 12) ?? null} />
+        </Card>
+      ) : null}
+
+      {manageLogo ? (
+        <Card>
+          <CardTitle>Contact details on reports (optional)</CardTitle>
+          <p className="text-ink-muted mb-3 text-sm">
+            Your address, telephone, email and any other information your customer needs. They print under your logo on
+            every PDF report and are written at the top of every Excel report.
+          </p>
+          <LetterheadForm current={letterhead} />
         </Card>
       ) : null}
 

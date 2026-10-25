@@ -4,6 +4,7 @@
 import type { AccessContext } from "../authz/access";
 import { NotFoundError } from "../authz/errors";
 import { getLogoImage } from "../services/organization-logo";
+import { getLetterhead } from "../services/organization-letterhead";
 import { FORMAT_INFO, type ExportDoc, type ExportFormat } from "./document";
 import { toPdf } from "./pdf";
 import { toXlsx } from "./xlsx";
@@ -19,7 +20,9 @@ export async function renderExport(
   const info = FORMAT_INFO[format];
   const exportedAt = opts.now ?? new Date();
   if (format === "csv") return { body: Buffer.from(opts.csv(), "utf8"), ...info };
-  if (format === "xlsx") return { body: await toXlsx(doc, { exportedBy: ctx.user.name, exportedAt }), ...info };
+  const letterhead = await getLetterhead(ctx);
+  if (format === "xlsx")
+    return { body: await toXlsx(doc, { exportedBy: ctx.user.name, exportedAt, letterhead }), ...info };
   // PDF: the organisation's optional logo (PNG/JPEG, already decoded and re-encoded on upload).
   let logo: { content: Uint8Array } | null = null;
   try {
@@ -27,16 +30,16 @@ export async function renderExport(
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error;
   }
-  return { body: await toPdf(doc, { exportedBy: ctx.user.name, exportedAt, logo }), ...info };
+  return { body: await toPdf(doc, { exportedBy: ctx.user.name, exportedAt, logo, letterhead }), ...info };
 }
 
 /** The HTTP response for a rendered export. CSV keeps its byte-order mark so Excel reads accents correctly. */
-export function exportResponse(file: RenderedExport, filename: string): Response {
+export function exportResponse(file: RenderedExport, filename: string, opts: { inline?: boolean } = {}): Response {
   const body = file.extension === "csv" ? Buffer.concat([Buffer.from("﻿", "utf8"), file.body]) : file.body;
   return new Response(new Uint8Array(body), {
     headers: {
       "Content-Type": file.contentType,
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `${opts.inline && file.extension === "pdf" ? "inline" : "attachment"}; filename="${filename}"`,
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },

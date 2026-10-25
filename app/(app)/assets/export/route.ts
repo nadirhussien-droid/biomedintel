@@ -13,10 +13,14 @@ export async function GET(request: Request) {
   const params = Object.fromEntries(new URL(request.url).searchParams.entries());
   const format = parseFormat(params.format);
   delete params.format;
+  const inline = params.inline === "1";
+  delete params.inline;
   try {
     const file = await exportAssets(ctx, params, format);
     const date = new Date().toISOString().slice(0, 10);
-    return exportResponse(file, exportFilename(`biomedintel-assets-${ctx.organization.slug}-${date}`, format));
+    return exportResponse(file, exportFilename(`biomedintel-assets-${ctx.organization.slug}-${date}`, format), {
+      inline,
+    });
   } catch (error) {
     if (error instanceof AuthorizationError) return new Response("Not permitted", { status: 403 });
     throw error;

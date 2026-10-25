@@ -7,6 +7,7 @@ import { NotFoundError } from "@/server/authz/errors";
 import { findPartByCode, listParts, listStores } from "@/server/services/inventory";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/ui/card";
+import { ClosedList } from "@/components/ui/closed-list";
 import { Empty, Pager, recordLink, rowCls, tableHead, td, tdr, th, thr } from "@/components/analytics/ui";
 import { StockTag } from "@/components/stage8/badges";
 import { INVENTORY_VIEW_LABELS, INVENTORY_VIEWS, STOCK_UNIT_LABELS } from "@/lib/validation/inventory";
@@ -36,6 +37,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Se
   }
   const raw: Record<string, string | undefined> = {};
   for (const k of ["view", "q", "location", "sort", "dir", "page"]) raw[k] = first(sp[k]);
+  // The list stays closed until someone searches, picks a view or filter, or asks for the full list.
+  const open = first(sp.all) === "1" || ["view", "q", "location", "sort", "dir", "page"].some((k) => first(sp[k]));
   let data;
   try {
     data = await Promise.all([listParts(ctx, raw), listStores(ctx)]);
@@ -170,7 +173,13 @@ export default async function InventoryPage({ searchParams }: { searchParams: Se
             Show
           </button>
         </form>
-        {r.parts.length === 0 ? (
+        {!open ? (
+          <ClosedList
+            title="Search or choose a view to see parts."
+            detail={`Your stores hold ${r.total} ${r.total === 1 ? "part" : "parts"}. Type a part number or name above, pick a view such as Low stock, or`}
+            showAllHref="/inventory?all=1"
+          />
+        ) : r.parts.length === 0 ? (
           <Empty>
             {stores.length === 0
               ? "No stores yet. An Inventory Manager or Engineering Manager adds stores under Stores, then parts and initial stock."
@@ -252,7 +261,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Se
             </table>
           </div>
         )}
-        <Pager page={q.page} pageCount={r.pageCount} href={(page) => href({ page })} />
+        {open ? <Pager page={q.page} pageCount={r.pageCount} href={(page) => href({ page })} /> : null}
         <p className="text-ink-muted text-xs">
           {r.total} part{r.total === 1 ? "" : "s"}. Low stock = available at or below the minimum; out of stock =
           nothing available. Figures cover {q.location ? "the selected store" : "all stores in your hospitals"}. A

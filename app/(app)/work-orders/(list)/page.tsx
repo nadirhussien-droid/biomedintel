@@ -4,6 +4,7 @@ import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
 import { listWorkOrders } from "@/server/services/work-orders";
 import { Card, CardTitle } from "@/components/ui/card";
+import { ClosedList } from "@/components/ui/closed-list";
 import { PageHeader } from "@/components/shell/page-header";
 import { OverdueBadge, PriorityBadge, SafetyBadge, WoStatusBadge } from "@/components/work-orders/badges";
 import { PRIORITIES, PRIORITY_LABELS } from "@/lib/validation/work-orders";
@@ -27,6 +28,8 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
   }
   const manage = can(ctx, "workorder.manage");
   const worker = can(ctx, "workorder.work");
+  // The list stays closed until someone picks a view, searches, filters or asks for the full list.
+  const open = first(sp.all) === "1" || ["view", "q", "status", "priority", "safety", "page"].some((k) => first(sp[k]));
   if (!raw.view) raw.view = worker && !manage ? "mine" : manage ? "open" : "open";
   const result = await listWorkOrders(ctx, raw);
   const q = result.query;
@@ -157,7 +160,13 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
         >
           {tabs.find((t) => t.key === q.view)?.label ?? "Work orders"}
         </CardTitle>
-        {result.rows.length === 0 ? (
+        {!open ? (
+          <ClosedList
+            title="Choose a view or search to see work orders."
+            detail={`${result.total} ${result.total === 1 ? "job is" : "jobs are"} in this view. Pick a tab above, search, or`}
+            showAllHref={`/work-orders?view=${q.view}&all=1`}
+          />
+        ) : result.rows.length === 0 ? (
           <div className="bg-surface rounded-md px-4 py-10 text-center">
             <p className="font-semibold">No work orders here.</p>
             <p className="text-ink-muted mt-1 text-sm">Try another view, or clear the search.</p>
@@ -195,7 +204,7 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
             ))}
           </ul>
         )}
-        {result.pageCount > 1 ? (
+        {open && result.pageCount > 1 ? (
           <nav aria-label="Pages" className="flex items-center justify-between text-sm">
             <span className="text-ink-muted">
               Page {result.page} of {result.pageCount}
