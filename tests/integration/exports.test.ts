@@ -163,6 +163,25 @@ describe("export formats", () => {
     await removeLogo(ctx);
   });
 
+  it("the organisation name is centred in the PDF header and in the Excel title rows", async () => {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const file = await exportAssets(await hodan(), {}, "pdf");
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(file.body), disableFontFace: true, verbosity: 0 })
+      .promise;
+    const page = await doc.getPage(1);
+    const mid = page.view[2] / 2;
+    const content = await page.getTextContent();
+    const item = content.items.find((it) => "str" in it && it.str.includes("Coastal Health Group"));
+    expect(item && "str" in item).toBeTruthy();
+    if (item && "str" in item) {
+      const centre = item.transform[4] + item.width / 2;
+      expect(Math.abs(centre - mid)).toBeLessThan(25);
+    }
+    const ws = await sheet((await exportAssets(await hodan(), {}, "xlsx")).body);
+    expect(ws.getCell("A2").value).toBe("Coastal Health Group");
+    expect(ws.getCell("A2").alignment?.horizontal).toBe("center");
+  });
+
   it("exports contain only the organisation's own records", async () => {
     const coastal = (await pdfText((await exportAssets(await hodan(), {}, "pdf")).body)).join(" ");
     const highland = (await pdfText((await exportAssets(await david(), {}, "pdf")).body)).join(" ");

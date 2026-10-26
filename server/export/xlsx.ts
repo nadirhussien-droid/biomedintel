@@ -41,7 +41,13 @@ export async function toXlsx(
 
   const title = ws.addRow([doc.title]);
   title.font = { bold: true, size: 14, color: { argb: NAVY } };
-  ws.addRow([doc.organization]).font = { bold: true, size: 11 };
+  const orgRow = ws.addRow([doc.organization]);
+  orgRow.font = { bold: true, size: 11 };
+  // The report title and the organisation name sit in the middle of the table width.
+  for (const r of [title, orgRow]) {
+    ws.mergeCells(r.number, 1, r.number, maxCols);
+    r.getCell(1).alignment = { horizontal: "center" };
+  }
   for (const line of headerLines(opts.letterhead ?? null))
     ws.addRow([line]).font = { size: 9, color: { argb: "FF444444" } };
   for (const [k, v] of doc.meta) {

@@ -19,7 +19,7 @@
 | Fault reporter | Fault Reporter | Optional |
 | Platform Super Administrator | Runs the platform; not a member role | Required |
 
-## Actions (74)
+## Actions (75)
 
 ✔ = allowed. Blank = refused.
 
@@ -57,6 +57,7 @@
 | `member.view` | ✔ |  |  |  |  | ✔ |  |
 | `member.add` | ✔ |  |  |  |  |  |  |
 | `member.changeRole` | ✔ |  |  |  |  |  |  |
+| `member.remove` | ✔ |  |  |  |  |  |  |
 | `member.resetMfa` | ✔ |  |  |  |  |  |  |
 
 ### audit

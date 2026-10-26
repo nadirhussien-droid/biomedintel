@@ -75,21 +75,35 @@ export async function toPdf(
     }
   }
   const contact = headerLines(opts.letterhead ?? null);
-  const textW = contact.length ? (width - (textX - left)) * 0.55 : width - (textX - left);
-  pdf.font(bold).fontSize(15).fillColor(NAVY).text(safe(doc.organization), textX, y, { width: textW });
+  // Contact details sit on the right, like a letterhead. The organisation name and the report
+  // title are centred on the page, between the logo and the contact block.
+  const contactW = contact.length ? width * 0.3 : 0;
+  const cx = left + width - contactW;
+  const centreX = left + width / 2;
+  const leftLimit = textX;
+  const rightLimit = contact.length ? cx - 10 : left + width;
+  let half = Math.min(centreX - leftLimit, rightLimit - centreX);
+  let centreLeft = centreX - half;
+  if (half < 60) {
+    // Too little room to centre on the page: centre in the space that is left.
+    centreLeft = leftLimit;
+    half = (rightLimit - leftLimit) / 2;
+  }
+  const centreW = half * 2;
+  pdf.font(bold).fontSize(15).fillColor(NAVY).text(safe(doc.organization), centreLeft, y, {
+    width: centreW,
+    align: "center",
+  });
   pdf
     .font(regular)
     .fontSize(11)
     .fillColor("black")
-    .text(safe(doc.title), textX, pdf.y + 2, { width: textW });
+    .text(safe(doc.title), centreLeft, pdf.y + 2, { width: centreW, align: "center" });
   let headerBottom = Math.max(pdf.y, y + 42);
   if (contact.length) {
-    // Contact details sit on the right, like a letterhead.
-    const cx = left + width - (width - (textX - left)) * 0.42;
-    const cw = left + width - cx;
     pdf.font(regular).fontSize(8).fillColor("#333333");
     const block = safe(contact.join("\n"));
-    pdf.text(block, cx, y, { width: cw, align: "right" });
+    pdf.text(block, cx, y, { width: contactW, align: "right" });
     headerBottom = Math.max(headerBottom, pdf.y);
   }
   y = headerBottom + 8;

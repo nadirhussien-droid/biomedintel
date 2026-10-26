@@ -16,6 +16,7 @@ import {
   addMemberSchema,
   archiveSchema,
   changeMemberRoleSchema,
+  removeMemberSchema,
   createDepartmentSchema,
   createHospitalSchema,
   resetMfaSchema,
@@ -240,6 +241,44 @@ export async function changeMemberRole(ctx: AccessContext, input: unknown) {
 }
 
 /**
+ * Takes a member's role away. The membership is marked REVOKED, never deleted, so every
+ * job, test and record they signed stays attached to their name. Rules:
+ *  • only Organization Administrators may do it;
+ *  • nobody can remove themselves;
+ *  • the last active Organization Administrator cannot be removed;
+ *  • adding the same person again restores their access.
+ */
+export async function removeMember(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "member.remove", { entityType: "membership" });
+  const data = parseInput(removeMemberSchema, input);
+  if (data.membershipId === ctx.membershipId) {
+    throw new ValidationError("You cannot remove your own role. Ask another Organization Administrator.");
+  }
+  return withTenant(tenant(ctx), async (tx) => {
+    const target = await tx.membership.findUnique({
+      where: { id: data.membershipId },
+      select: { id: true, role: true, status: true, userId: true },
+    });
+    if (!target || target.status !== "ACTIVE") throw new NotFoundError("Member");
+    if (target.role === "ORG_ADMIN") {
+      const admins = await tx.membership.count({ where: { role: "ORG_ADMIN", status: "ACTIVE" } });
+      if (admins <= 1) throw new ValidationError("The organisation must keep at least one Organization Administrator.");
+    }
+    await tx.membership.update({ where: { id: target.id }, data: { status: "REVOKED" } });
+    await audit(tx, {
+      organizationId: ctx.organization.id,
+      actorUserId: ctx.user.id,
+      action: "membership.revoked",
+      entityType: "membership",
+      entityId: target.id,
+      metadata: { userId: target.userId, role: target.role },
+      request: ctx.request,
+    });
+    return { id: target.id };
+  });
+}
+
+/**
  * MFA recovery (Stage 6, decision of 15 Oct 2026). For a member who has lost
  * BOTH their authenticator and their backup codes. An Organization
  * Administrator — never the person themselves — removes their authenticator
@@ -334,16 +373,29 @@ export async function addMember(ctx: AccessContext, input: unknown) {
         name: data.name,
         password: temporaryPassword,
       });
-      const membership = await tx.membership.create({
-        data: {
-          organizationId: ctx.organization.id,
-          userId: user.id,
-          role: data.role,
-          orgWide: data.orgWide,
-          createdById: ctx.user.id,
-        },
-        select: { id: true },
+      // Someone whose role was removed earlier is restored, not duplicated.
+      const earlier = await tx.membership.findFirst({
+        where: { userId: user.id },
+        select: { id: true, status: true },
       });
+      const restored = earlier && earlier.status !== "ACTIVE";
+      const membership = restored
+        ? await tx.membership.update({
+            where: { id: earlier.id },
+            data: { status: "ACTIVE", role: data.role, orgWide: data.orgWide },
+            select: { id: true },
+          })
+        : await tx.membership.create({
+            data: {
+              organizationId: ctx.organization.id,
+              userId: user.id,
+              role: data.role,
+              orgWide: data.orgWide,
+              createdById: ctx.user.id,
+            },
+            select: { id: true },
+          });
+      if (restored) await tx.membershipScope.deleteMany({ where: { membershipId: membership.id } });
       if (!data.orgWide && data.hospitalId) {
         await tx.membershipScope.create({
           data: {
@@ -357,7 +409,7 @@ export async function addMember(ctx: AccessContext, input: unknown) {
       await audit(tx, {
         organizationId: ctx.organization.id,
         actorUserId: ctx.user.id,
-        action: "membership.created",
+        action: restored ? "membership.restored" : "membership.created",
         entityType: "membership",
         entityId: membership.id,
         metadata: {

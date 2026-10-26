@@ -9,6 +9,7 @@ import {
   changeMemberRoleAction,
   createDepartmentAction,
   createHospitalAction,
+  removeMemberAction,
   resetMemberMfaAction,
 } from "./actions";
 
@@ -243,6 +244,34 @@ export function ResetMfaForm({ membershipId, name }: { membershipId: string; nam
       <Button type="submit" variant="danger" className="min-h-10 px-3" disabled={pending}>
         Reset two-step verification
       </Button>
+      <Message state={state} />
+    </form>
+  );
+}
+
+export function RemoveMemberForm({ membershipId, name }: { membershipId: string; name: string }) {
+  const [state, action, pending] = useActionState(removeMemberAction, null);
+  return (
+    <form
+      action={action}
+      className="flex flex-col items-start gap-1"
+      onSubmit={(e) => {
+        if (
+          !window.confirm(
+            `Remove ${name}'s role? They will no longer be able to use this organisation. Their past work stays on record, and you can add them again later.`,
+          )
+        )
+          e.preventDefault();
+      }}
+    >
+      <input type="hidden" name="membershipId" value={membershipId} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="text-danger text-xs font-semibold hover:underline disabled:opacity-60"
+      >
+        Remove role
+      </button>
       <Message state={state} />
     </form>
   );

@@ -55,6 +55,10 @@ export const changeMemberRoleSchema = z.object({
   role: membershipRoleSchema,
 });
 
+export const removeMemberSchema = z.object({
+  membershipId: uuid,
+});
+
 export const addMemberSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Enter a valid email address").max(200),
@@ -103,6 +107,7 @@ export const createOrganizationSchema = z.object({
 export type CreateHospitalInput = z.input<typeof createHospitalSchema>;
 export type CreateDepartmentInput = z.input<typeof createDepartmentSchema>;
 export type ChangeMemberRoleInput = z.input<typeof changeMemberRoleSchema>;
+export type RemoveMemberInput = z.input<typeof removeMemberSchema>;
 export type AddMemberInput = z.input<typeof addMemberSchema>;
 export type CreateOrganizationInput = z.input<typeof createOrganizationSchema>;
 

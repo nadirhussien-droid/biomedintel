@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
@@ -15,14 +16,26 @@ import { PageHeader } from "@/components/shell/page-header";
 import { archiveDepartmentAction, archiveHospitalAction } from "./actions";
 import { LogoForm } from "./logo-form";
 import { LetterheadForm } from "./letterhead-form";
-import { AddMemberForm, ChangeRoleForm, CreateDepartmentForm, CreateHospitalForm, ResetMfaForm } from "./forms";
+import {
+  AddMemberForm,
+  ChangeRoleForm,
+  CreateDepartmentForm,
+  CreateHospitalForm,
+  RemoveMemberForm,
+  ResetMfaForm,
+} from "./forms";
 
 export const metadata: Metadata = { title: "User and Organization Administration" };
 
 const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const ctx = await requireAccess();
+  const showAudit = (await searchParams).audit === "1";
   if (!can(ctx, "admin.view")) redirect("/dashboard");
 
   const manage = can(ctx, "hospital.create");
@@ -31,7 +44,7 @@ export default async function AdminPage() {
   const [hospitals, members, auditLogs, logo, letterhead, problems] = await Promise.all([
     listHospitals(ctx),
     listMembers(ctx),
-    listAuditLogs(ctx, 40),
+    showAudit ? listAuditLogs(ctx, 40) : Promise.resolve([]),
     manageLogo ? getLogoInfo(ctx) : Promise.resolve(null),
     manageLogo ? getLetterhead(ctx) : Promise.resolve(null),
     manageFeedback ? listProblemReports(ctx) : Promise.resolve(null),
@@ -166,7 +179,14 @@ export default async function AdminPage() {
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
-                    <Badge tone={m.status === "ACTIVE" ? "ok" : "neutral"}>{m.status.toLowerCase()}</Badge>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge tone={m.status === "ACTIVE" ? "ok" : "neutral"}>
+                        {m.status === "REVOKED" ? "role removed" : m.status.toLowerCase()}
+                      </Badge>
+                      {can(ctx, "member.remove") && m.id !== ctx.membershipId && m.status === "ACTIVE" ? (
+                        <RemoveMemberForm membershipId={m.id} name={m.user.name} />
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -254,60 +274,77 @@ export default async function AdminPage() {
       <Card>
         <CardTitle
           action={
-            <span className="text-ink-muted text-xs">
-              Latest 40 events · times in UTC · records cannot be edited or deleted
-            </span>
+            <Link
+              href={showAudit ? "/admin" : "/admin?audit=1"}
+              scroll={false}
+              className="text-sm font-semibold text-teal-700 hover:underline"
+            >
+              {showAudit ? "Hide audit log" : "Show audit log"}
+            </Link>
           }
         >
           Audit log
         </CardTitle>
-        <div
-          className="overflow-x-auto"
-          tabIndex={0}
-          role="region"
-          aria-label="Table (scroll sideways on small screens)"
-        >
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">
-                <th scope="col" className="px-3 py-2">
-                  When
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  Action
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  Outcome
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  By
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  Record
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  IP address
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.map((a) => (
-                <tr key={a.id} className="border-line border-t">
-                  <td className="text-ink-muted px-3 py-2 whitespace-nowrap">{dateTime.format(a.createdAt)}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{a.action}</td>
-                  <td className="px-3 py-2">
-                    <Badge tone={a.outcome === "SUCCESS" ? "ok" : a.outcome === "DENIED" ? "danger" : "warn"}>
-                      {a.outcome.toLowerCase()}
-                    </Badge>
-                  </td>
-                  <td className="px-3 py-2">{(a.actorUserId && nameById.get(a.actorUserId)) ?? "—"}</td>
-                  <td className="text-ink-muted px-3 py-2 text-xs">{a.entityType ?? "—"}</td>
-                  <td className="text-ink-muted px-3 py-2 font-mono text-xs">{a.ipAddress ?? "—"}</td>
+        {!showAudit ? (
+          <p className="text-ink-muted text-sm">
+            The audit log is hidden. Choose Show audit log to see the latest events. Records cannot be edited or
+            deleted.
+          </p>
+        ) : null}
+        {showAudit ? (
+          <p className="text-ink-muted mb-2 text-xs">
+            Latest 40 events · times in UTC · records cannot be edited or deleted
+          </p>
+        ) : null}
+        {showAudit ? (
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Table (scroll sideways on small screens)"
+          >
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-surface-sunken text-ink-muted text-left text-xs tracking-wide uppercase">
+                  <th scope="col" className="px-3 py-2">
+                    When
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    Action
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    Outcome
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    By
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    Record
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    IP address
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {auditLogs.map((a) => (
+                  <tr key={a.id} className="border-line border-t">
+                    <td className="text-ink-muted px-3 py-2 whitespace-nowrap">{dateTime.format(a.createdAt)}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{a.action}</td>
+                    <td className="px-3 py-2">
+                      <Badge tone={a.outcome === "SUCCESS" ? "ok" : a.outcome === "DENIED" ? "danger" : "warn"}>
+                        {a.outcome.toLowerCase()}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2">{(a.actorUserId && nameById.get(a.actorUserId)) ?? "—"}</td>
+                    <td className="text-ink-muted px-3 py-2 text-xs">{a.entityType ?? "—"}</td>
+                    <td className="text-ink-muted px-3 py-2 font-mono text-xs">{a.ipAddress ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </Card>
     </>
   );

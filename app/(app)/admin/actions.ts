@@ -12,6 +12,7 @@ import {
   archiveDepartment,
   archiveHospital,
   changeMemberRole,
+  removeMember,
   createDepartment,
   createHospital,
   resetMemberMfa,
@@ -61,6 +62,16 @@ export async function changeMemberRoleAction(_prev: ActionResult | null, form: F
   const result = await runAction(
     () => changeMemberRole(ctx, { membershipId: str(form, "membershipId"), role: str(form, "role") }),
     "Role updated.",
+  );
+  if (result.ok) revalidatePath("/admin");
+  return { ...result, data: undefined } as ActionResult;
+}
+
+export async function removeMemberAction(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const ctx = await requireAccess();
+  const result = await runAction(
+    () => removeMember(ctx, { membershipId: str(form, "membershipId") }),
+    "Role removed. They can no longer use this organisation.",
   );
   if (result.ok) revalidatePath("/admin");
   return { ...result, data: undefined } as ActionResult;
