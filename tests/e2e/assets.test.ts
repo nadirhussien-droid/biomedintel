@@ -136,7 +136,7 @@ describe.skipIf(!BASE || !PASSWORD)("equipment pages, signed in as a technician"
     const job = await owner.workOrder.findFirstOrThrow({
       where: { organization: { slug: "coastal-health" }, asset: { assetTag: "VEN-0001" } },
     });
-    const list = await (await get(`/work-orders?view=all`)).text();
+    const list = await (await get(`/work-orders?view=all&all=1`)).text();
     expect(list).toContain(job.number);
     const page = await (await get(`/work-orders/${job.id}`)).text();
     expect(page).toContain(job.number);
