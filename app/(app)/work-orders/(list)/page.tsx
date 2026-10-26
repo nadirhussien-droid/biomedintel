@@ -28,8 +28,8 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
   }
   const manage = can(ctx, "workorder.manage");
   const worker = can(ctx, "workorder.work");
-  // The list stays closed until someone picks a view, searches, filters or asks for the full list.
-  const open = first(sp.all) === "1" || ["view", "q", "status", "priority", "safety", "page"].some((k) => first(sp[k]));
+  // The list stays closed until someone searches, filters or asks for the full list. Picking a tab only changes which jobs are counted.
+  const open = first(sp.all) === "1" || ["q", "status", "priority", "safety", "page"].some((k) => first(sp[k]));
   if (!raw.view) raw.view = worker && !manage ? "mine" : manage ? "open" : "open";
   const result = await listWorkOrders(ctx, raw);
   const q = result.query;
@@ -162,8 +162,8 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
         </CardTitle>
         {!open ? (
           <ClosedList
-            title="Choose a view or search to see work orders."
-            detail={`${result.total} ${result.total === 1 ? "job is" : "jobs are"} in this view. Pick a tab above, search, or`}
+            title="Search or show the full list to see work orders."
+            detail={`${result.total} ${result.total === 1 ? "job is" : "jobs are"} in this view. Search above, or`}
             showAllHref={`/work-orders?view=${q.view}&all=1`}
           />
         ) : result.rows.length === 0 ? (

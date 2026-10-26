@@ -5,6 +5,7 @@ import { can } from "@/server/authz/access";
 import { getEffectiveAiConfig, listSessions } from "@/server/services/troubleshooting";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { ClosedList } from "@/components/ui/closed-list";
 import { Card, CardTitle } from "@/components/ui/card";
 import { InputField } from "@/components/ui/field";
 import { ActionForm } from "@/components/forms/action-form";
@@ -35,6 +36,8 @@ export default async function AssistPage({ searchParams }: { searchParams: Searc
   }
   const r = await listSessions(ctx, { status: first(sp.status), mine: first(sp.mine), page: first(sp.page) });
   const config = await getEffectiveAiConfig(ctx);
+  // The list stays closed until someone asks for it, whichever tab is chosen.
+  const open = first(sp.all) === "1" || !!first(sp.page);
   const href = (o: Record<string, string>) =>
     `/assist?${new URLSearchParams({ status: r.q.status, ...(r.q.mine ? { mine: "1" } : {}), ...o }).toString()}`;
   return (
@@ -111,7 +114,14 @@ export default async function AssistPage({ searchParams }: { searchParams: Searc
       </nav>
       <Card>
         <CardTitle>Sessions ({r.total})</CardTitle>
-        {r.rows.length === 0 ? (
+        {!open ? (
+          <ClosedList
+            title="Choose Show sessions to see the list."
+            detail={`${r.total} ${r.total === 1 ? "session is" : "sessions are"} in this view. Change the tab above, or`}
+            showAllHref={href({ all: "1" })}
+            showAllLabel="show the sessions"
+          />
+        ) : r.rows.length === 0 ? (
           <Empty>No troubleshooting sessions here.</Empty>
         ) : (
           <div
@@ -164,7 +174,7 @@ export default async function AssistPage({ searchParams }: { searchParams: Searc
             </table>
           </div>
         )}
-        <Pager page={r.page} pageCount={r.pageCount} href={(page) => href({ page: String(page) })} />
+        {open ? <Pager page={r.page} pageCount={r.pageCount} href={(page) => href({ page: String(page) })} /> : null}
       </Card>
     </>
   );
