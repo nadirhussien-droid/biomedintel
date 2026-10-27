@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { requireAccess } from "@/server/auth/session";
 import { can } from "@/server/authz/access";
 import { ROLE_LABELS, MEMBERSHIP_ROLES } from "@/server/authz/roles";
-import { listAuditLogs, listHospitals, listMembers } from "@/server/services/organization-admin";
+import { listArchived, listAuditLogs, listHospitals, listMembers } from "@/server/services/organization-admin";
 import { getLogoInfo } from "@/server/services/organization-logo";
 import { getLetterhead } from "@/server/services/organization-letterhead";
 import { listProblemReports } from "@/server/services/problem-reports";
@@ -13,7 +13,13 @@ import { resolveProblemAction } from "../help/actions";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shell/page-header";
-import { archiveDepartmentAction, archiveHospitalAction } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import {
+  archiveDepartmentAction,
+  archiveHospitalAction,
+  restoreDepartmentAction,
+  restoreHospitalAction,
+} from "./actions";
 import { LogoForm } from "./logo-form";
 import { LetterheadForm } from "./letterhead-form";
 import {
@@ -41,13 +47,14 @@ export default async function AdminPage({
   const manage = can(ctx, "hospital.create");
   const manageLogo = can(ctx, "logo.manage");
   const manageFeedback = can(ctx, "feedback.manage");
-  const [hospitals, members, auditLogs, logo, letterhead, problems] = await Promise.all([
+  const [hospitals, members, auditLogs, logo, letterhead, problems, archived] = await Promise.all([
     listHospitals(ctx),
     listMembers(ctx),
     showAudit ? listAuditLogs(ctx, 40) : Promise.resolve([]),
     manageLogo ? getLogoInfo(ctx) : Promise.resolve(null),
     manageLogo ? getLetterhead(ctx) : Promise.resolve(null),
     manageFeedback ? listProblemReports(ctx) : Promise.resolve(null),
+    manage ? listArchived(ctx) : Promise.resolve(null),
   ]);
   const roleOptions = MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
   const hospitalOptions = hospitals.map((h) => ({
@@ -80,12 +87,12 @@ export default async function AdminPage({
                 {manage ? (
                   <form action={archiveHospitalAction}>
                     <input type="hidden" name="id" value={h.id} />
-                    <button
-                      type="submit"
+                    <ConfirmSubmit
+                      message={`Archive ${h.name} and all of its departments? Nothing is deleted, and you can restore it from this page.`}
                       className="border-danger/40 text-danger hover:bg-danger-bg min-h-10 rounded-md border px-3 text-sm font-semibold"
                     >
                       Archive hospital
-                    </button>
+                    </ConfirmSubmit>
                   </form>
                 ) : null}
               </div>
@@ -96,13 +103,13 @@ export default async function AdminPage({
                     {manage ? (
                       <form action={archiveDepartmentAction}>
                         <input type="hidden" name="id" value={d.id} />
-                        <button
-                          type="submit"
-                          aria-label={`Archive ${d.name}`}
+                        <ConfirmSubmit
+                          message={`Archive the department ${d.name}? Nothing is deleted, and you can restore it from this page.`}
+                          ariaLabel={`Archive ${d.name}`}
                           className="text-danger hover:bg-danger-bg rounded-sm px-1 text-xs font-semibold"
                         >
                           Archive
-                        </button>
+                        </ConfirmSubmit>
                       </form>
                     ) : null}
                   </li>
@@ -113,6 +120,54 @@ export default async function AdminPage({
           ))}
         </div>
       </Card>
+
+      {archived && (archived.hospitals.length || archived.departments.length) ? (
+        <Card>
+          <CardTitle>Archived hospitals and departments</CardTitle>
+          <p className="text-ink-muted mb-3 text-sm">
+            Archived by mistake? Press Restore to bring it back. Everything recorded there is still kept. Restoring a
+            hospital also brings back the departments that were archived with it.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {archived.hospitals.map((h) => (
+              <li
+                key={h.id}
+                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+              >
+                <span className="text-sm">
+                  <strong>{h.name}</strong> <span className="text-ink-muted font-mono text-xs">{h.code}</span>
+                  {h.archivedAt ? (
+                    <span className="text-ink-muted"> · archived {dateTime.format(h.archivedAt)} UTC</span>
+                  ) : null}
+                </span>
+                <form action={restoreHospitalAction}>
+                  <input type="hidden" name="id" value={h.id} />
+                  <Button type="submit" variant="secondary">
+                    Restore hospital
+                  </Button>
+                </form>
+              </li>
+            ))}
+            {archived.departments.map((d) => (
+              <li
+                key={d.id}
+                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+              >
+                <span className="text-sm">
+                  <strong>{d.name}</strong> <span className="text-ink-muted font-mono text-xs">{d.code}</span>
+                  <span className="text-ink-muted"> · {d.hospital.name}</span>
+                </span>
+                <form action={restoreDepartmentAction}>
+                  <input type="hidden" name="id" value={d.id} />
+                  <Button type="submit" variant="secondary">
+                    Restore department
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card>
         <CardTitle>Members</CardTitle>
