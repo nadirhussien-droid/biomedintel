@@ -170,6 +170,77 @@ export async function archiveDepartment(ctx: AccessContext, input: unknown) {
   });
 }
 
+/** Archived hospitals, and archived departments of hospitals that are still active (for the Restore buttons). */
+export async function listArchived(ctx: AccessContext) {
+  await requirePermission(ctx, "hospital.archive");
+  return withTenant(tenant(ctx), async (tx) => {
+    const hospitals = await tx.hospital.findMany({
+      where: { status: "ARCHIVED" },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, code: true, archivedAt: true },
+    });
+    const departments = await tx.department.findMany({
+      where: { status: "ARCHIVED", hospital: { status: "ACTIVE" } },
+      orderBy: [{ hospital: { name: "asc" } }, { name: "asc" }],
+      select: { id: true, name: true, code: true, archivedAt: true, hospital: { select: { name: true } } },
+    });
+    return { hospitals, departments };
+  });
+}
+
+/**
+ * Undoes an archive. The hospital comes back together with the departments that were archived at
+ * the same moment as it; a department archived on its own earlier stays archived.
+ */
+export async function restoreHospital(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "hospital.archive", { entityType: "hospital" });
+  const { id } = parseInput(archiveSchema, input);
+  return withTenant(tenant(ctx), async (tx) => {
+    const hospital = await tx.hospital.findUnique({ where: { id }, select: { status: true, archivedAt: true } });
+    if (!hospital || hospital.status !== "ARCHIVED") throw new NotFoundError("Hospital");
+    await tx.hospital.update({ where: { id }, data: { status: "ACTIVE", archivedAt: null } });
+    const departments = hospital.archivedAt
+      ? await tx.department.updateMany({
+          where: { hospitalId: id, status: "ARCHIVED", archivedAt: hospital.archivedAt },
+          data: { status: "ACTIVE", archivedAt: null },
+        })
+      : { count: 0 };
+    await audit(tx, {
+      organizationId: ctx.organization.id,
+      actorUserId: ctx.user.id,
+      action: "hospital.restored",
+      entityType: "hospital",
+      entityId: id,
+      metadata: { departmentsRestored: departments.count },
+      request: ctx.request,
+    });
+  });
+}
+
+export async function restoreDepartment(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "department.archive", { entityType: "department" });
+  const { id } = parseInput(archiveSchema, input);
+  return withTenant(tenant(ctx), async (tx) => {
+    const department = await tx.department.findUnique({
+      where: { id },
+      select: { status: true, hospital: { select: { status: true } } },
+    });
+    if (!department || department.status !== "ARCHIVED") throw new NotFoundError("Department");
+    if (department.hospital.status !== "ACTIVE") {
+      throw new ValidationError("Restore the hospital first, then its departments.");
+    }
+    await tx.department.update({ where: { id }, data: { status: "ACTIVE", archivedAt: null } });
+    await audit(tx, {
+      organizationId: ctx.organization.id,
+      actorUserId: ctx.user.id,
+      action: "department.restored",
+      entityType: "department",
+      entityId: id,
+      request: ctx.request,
+    });
+  });
+}
+
 // ─── Members ─────────────────────────────────────────────────────────────────
 
 export async function listMembers(ctx: AccessContext) {

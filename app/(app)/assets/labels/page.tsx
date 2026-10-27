@@ -85,7 +85,8 @@ export default async function LabelsPage({
               {requested > assets.length
                 ? ` ${requested - assets.length} selected item(s) were left out (archived, outside your scope, or over the limit of ${MAX_LABELS}).`
                 : ""}{" "}
-              Labels show the equipment name and asset ID only — no serial numbers, costs or other internal details.
+              Labels show the hospital name and the barcode with its asset ID only — no serial numbers, costs or other
+              internal details.
             </p>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-semibold">Format:</span>
@@ -100,7 +101,7 @@ export default async function LabelsPage({
                 </Link>
               ))}
               <Link href={query({ location: showLocation ? "0" : "1" })} className="text-teal-700 underline">
-                {showLocation ? "Hide hospital and department" : "Show hospital and department"}
+                {showLocation ? "Hide hospital name" : "Show hospital name"}
               </Link>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -135,17 +136,9 @@ export default async function LabelsPage({
                 key={a.id}
                 className={`${L.label} flex flex-col justify-between overflow-hidden border border-dashed border-[#9aa9b8] bg-white px-[2mm] py-[1.5mm] text-black print:border-transparent`}
               >
-                <div className="flex items-center justify-between gap-[2mm]">
-                  <span className="flex shrink-0 items-center gap-[1mm]">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- static SVG, prints reliably */}
-                    <img src="/brand/mark-dark.svg" alt="" className="h-[3.2mm] w-[3.2mm]" />
-                    <span className="text-[6.5pt] font-bold tracking-tight">BiomedIntel.ai</span>
-                  </span>
-                  <span className="truncate text-[6pt] leading-tight">
-                    {showLocation ? `${a.hospital.code} · ${a.department.name}` : ""}
-                  </span>
+                <div className="truncate text-center text-[8.5pt] leading-tight font-bold">
+                  {showLocation ? a.hospital.name : ""}
                 </div>
-                <div className="truncate text-[7.5pt] leading-tight font-semibold">{a.name}</div>
                 <BarcodeSvg barcode={a.barcode} label={`Code 128 barcode for ${a.assetTag}`} className={L.barcode} />
                 <div className="text-center font-mono text-[10pt] leading-none font-bold tracking-wider">
                   {a.assetTag}

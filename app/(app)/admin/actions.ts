@@ -13,6 +13,8 @@ import {
   archiveHospital,
   changeMemberRole,
   removeMember,
+  restoreDepartment,
+  restoreHospital,
   createDepartment,
   createHospital,
   resetMemberMfa,
@@ -54,6 +56,18 @@ export async function archiveHospitalAction(form: FormData): Promise<void> {
 export async function archiveDepartmentAction(form: FormData): Promise<void> {
   const ctx = await requireAccess();
   await runAction(() => archiveDepartment(ctx, { id: str(form, "id") }), "Department archived.");
+  revalidatePath("/", "layout");
+}
+
+export async function restoreHospitalAction(form: FormData): Promise<void> {
+  const ctx = await requireAccess();
+  await runAction(() => restoreHospital(ctx, { id: str(form, "id") }), "Hospital restored.");
+  revalidatePath("/", "layout");
+}
+
+export async function restoreDepartmentAction(form: FormData): Promise<void> {
+  const ctx = await requireAccess();
+  await runAction(() => restoreDepartment(ctx, { id: str(form, "id") }), "Department restored.");
   revalidatePath("/", "layout");
 }
 
