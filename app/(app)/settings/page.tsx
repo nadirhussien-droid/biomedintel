@@ -16,11 +16,11 @@ export default async function SettingsPage() {
       />
       <Card className="max-w-3xl">
         <CardTitle>Your account</CardTitle>
-        <dl className="grid grid-cols-[10rem_1fr] gap-y-2 text-sm">
+        <dl className="grid grid-cols-1 gap-y-0.5 text-sm sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-y-2">
           <dt className="text-ink-muted">Name</dt>
-          <dd>{ctx.user.name}</dd>
+          <dd className="mb-3 sm:mb-0">{ctx.user.name}</dd>
           <dt className="text-ink-muted">Email</dt>
-          <dd>{ctx.user.email}</dd>
+          <dd className="mb-3 [overflow-wrap:anywhere] sm:mb-0">{ctx.user.email}</dd>
           <dt className="text-ink-muted">Two-step verification</dt>
           <dd>{ctx.user.twoFactorEnabled ? "On" : "Off"}</dd>
         </dl>
