@@ -11,12 +11,14 @@ import { audit } from "../audit/audit";
 import { requirePermission, requireHospitalAccess, type AccessContext } from "../authz/access";
 import { NotFoundError, ValidationError } from "../authz/errors";
 import { parseInput, isUniqueViolation } from "../validation";
+import { hashPassword } from "better-auth/crypto";
 import { findOrCreateUserWithPassword, generateTemporaryPassword } from "../auth/users";
 import {
   addMemberSchema,
   archiveSchema,
   changeMemberRoleSchema,
   removeMemberSchema,
+  resetPasswordSchema,
   createDepartmentSchema,
   createHospitalSchema,
   resetMfaSchema,
@@ -422,6 +424,74 @@ export async function resetMemberMfa(ctx: AccessContext, input: unknown) {
     );
   }
   return { sessionsEnded: result.sessionsEnded };
+}
+
+/**
+ * Password recovery (27 Oct 2026). There is no email reset yet, so an Organization Administrator
+ * gives a member who has forgotten their password a NEW temporary password, after checking who
+ * they are (outside the app). The new password is returned once; it is stored only as a hash.
+ *  • never for yourself, and never for a platform administrator;
+ *  • refused when the person also belongs to another organisation (the login is shared), as with
+ *    the two-step verification reset;
+ *  • signs the person out everywhere; they should change the password under Security;
+ *  • audits who did it, for whom and why (never the password).
+ */
+export async function resetMemberPassword(ctx: AccessContext, input: unknown) {
+  await requirePermission(ctx, "member.resetPassword", { entityType: "membership" });
+  const data = parseInput(resetPasswordSchema, input);
+  if (data.membershipId === ctx.membershipId) {
+    throw new ValidationError("You cannot reset your own password here. Change it under Security.");
+  }
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
+  const result = await withTenant(tenant(ctx), async (tx) => {
+    const target = await tx.membership.findUnique({
+      where: { id: data.membershipId },
+      select: { id: true, status: true, userId: true, user: { select: { platformRole: true } } },
+    });
+    if (!target || target.status !== "ACTIVE") throw new NotFoundError("Member");
+    if (target.user.platformRole) {
+      throw new ValidationError("Platform administrators are recovered by the platform team.");
+    }
+    const [{ other }] = await tx.$queryRaw<
+      { other: boolean }[]
+    >`SELECT app_user_in_other_org(${target.userId}) AS other`;
+    if (other) return { refused: true as const, userId: target.userId, membershipId: target.id };
+    const updated = await tx.account.updateMany({
+      where: { userId: target.userId, providerId: "credential" },
+      data: { password: passwordHash },
+    });
+    if (updated.count === 0) throw new ValidationError("This person has no password login to reset.");
+    const sessions = await tx.session.deleteMany({ where: { userId: target.userId } });
+    await audit(tx, {
+      organizationId: ctx.organization.id,
+      actorUserId: ctx.user.id,
+      action: "auth.password_reset_by_admin",
+      entityType: "user",
+      entityId: target.userId,
+      metadata: { membershipId: target.id, reason: data.reason, sessionsEnded: sessions.count },
+      request: ctx.request,
+    });
+    return { refused: false as const };
+  });
+  if (result.refused) {
+    await withTenant(tenant(ctx), (tx) =>
+      audit(tx, {
+        organizationId: ctx.organization.id,
+        actorUserId: ctx.user.id,
+        action: "auth.password_reset_refused",
+        outcome: "DENIED",
+        entityType: "user",
+        entityId: result.userId,
+        metadata: { membershipId: result.membershipId, reason: "member_of_another_organisation" },
+        request: ctx.request,
+      }),
+    );
+    throw new ValidationError(
+      "This person also uses BiomedIntel.ai in another organisation, so their password can only be reset by the BiomedIntel.ai platform team.",
+    );
+  }
+  return { temporaryPassword };
 }
 
 /**

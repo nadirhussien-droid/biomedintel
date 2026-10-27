@@ -10,8 +10,35 @@ import {
   createDepartmentAction,
   createHospitalAction,
   removeMemberAction,
+  resetMemberPasswordAction,
   resetMemberMfaAction,
 } from "./actions";
+
+function TemporaryPassword({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div role="status" className="bg-warn-bg rounded-sm border border-[#e8c98c] p-3 text-sm text-[#6b3f00]">
+      <p className="font-semibold">Temporary password (shown once, write it down or copy it now):</p>
+      <code className="text-ink mt-1 block font-mono text-base select-all">{value}</code>
+      <button
+        type="button"
+        className="mt-2 text-sm font-semibold text-teal-700 underline"
+        onClick={() => {
+          navigator.clipboard
+            ?.writeText(value)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? "Copied" : "Copy password"}
+      </button>
+      <p className="mt-1">
+        Give it to the person through a secure channel. Once signed in, they should change it under Security. Leaving
+        this page hides it for good.
+      </p>
+    </div>
+  );
+}
 
 function Message({ state }: { state: ActionResult<unknown> | null }) {
   if (!state) return null;
@@ -189,15 +216,7 @@ export function AddMemberForm({ roles, hospitals }: { roles: RoleOption[]; hospi
         </Button>
         <Message state={state} />
       </div>
-      {state?.ok && state.data?.temporaryPassword ? (
-        <div role="status" className="bg-warn-bg rounded-sm border border-[#e8c98c] p-3 text-sm text-[#6b3f00]">
-          <p className="font-semibold">Temporary password (shown once):</p>
-          <code className="text-ink mt-1 block font-mono text-base select-all">{state.data.temporaryPassword}</code>
-          <p className="mt-1">
-            Give it to the person through a secure channel. Email invitations replace this step in a later stage.
-          </p>
-        </div>
-      ) : null}
+      {state?.ok && state.data?.temporaryPassword ? <TemporaryPassword value={state.data.temporaryPassword} /> : null}
     </form>
   );
 }
@@ -273,6 +292,54 @@ export function RemoveMemberForm({ membershipId, name }: { membershipId: string;
         Remove role
       </button>
       <Message state={state} />
+    </form>
+  );
+}
+
+/** Password recovery: gives a member who forgot their password a new temporary one. */
+export function ResetPasswordForm({ membershipId, name }: { membershipId: string; name: string }) {
+  const [state, action, pending] = useActionState(resetMemberPasswordAction, null);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="text-xs font-semibold text-teal-700 hover:underline"
+        onClick={() => setOpen(true)}
+      >
+        Reset password
+      </button>
+    );
+  }
+  return (
+    <form
+      action={action}
+      className="flex min-w-56 flex-col gap-1"
+      onSubmit={(e) => {
+        if (
+          !window.confirm(
+            `Create a new temporary password for ${name}? Their old password stops working and they are signed out everywhere.`,
+          )
+        )
+          e.preventDefault();
+      }}
+    >
+      <input type="hidden" name="membershipId" value={membershipId} />
+      <label className="text-xs font-semibold" htmlFor={`pw-reason-${membershipId}`}>
+        How did you confirm who they are?
+      </label>
+      <input
+        id={`pw-reason-${membershipId}`}
+        name="reason"
+        maxLength={300}
+        className="border-line-strong min-h-10 rounded-sm border bg-white px-2 text-sm"
+        placeholder="e.g. Checked staff ID in person"
+      />
+      <Button type="submit" variant="danger" className="min-h-10 px-3" disabled={pending}>
+        Create new temporary password
+      </Button>
+      <Message state={state} />
+      {state?.ok && state.data?.temporaryPassword ? <TemporaryPassword value={state.data.temporaryPassword} /> : null}
     </form>
   );
 }

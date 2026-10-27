@@ -48,6 +48,8 @@ export const PERMISSIONS = {
   "member.remove": ["ORG_ADMIN"],
   // Stage 6: MFA recovery for a member who lost authenticator AND backup codes.
   "member.resetMfa": ["ORG_ADMIN"],
+  // Gives a member a new temporary password when they have forgotten theirs (no email reset yet).
+  "member.resetPassword": ["ORG_ADMIN"],
   "audit.view": ["ORG_ADMIN", "AUDITOR"],
   // Optional hospital logo printed on job sheets (set or remove).
   "logo.manage": ["ORG_ADMIN"],
