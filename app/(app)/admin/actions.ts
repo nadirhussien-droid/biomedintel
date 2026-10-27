@@ -13,6 +13,7 @@ import {
   archiveHospital,
   changeMemberRole,
   removeMember,
+  resetMemberPassword,
   restoreDepartment,
   restoreHospital,
   createDepartment,
@@ -100,6 +101,20 @@ export async function resetMemberMfaAction(_prev: ActionResult | null, form: For
   );
   if (result.ok) revalidatePath("/admin");
   return { ...result, data: undefined } as ActionResult;
+}
+
+export async function resetMemberPasswordAction(
+  _prev: ActionResult<{ temporaryPassword: string | null }> | null,
+  form: FormData,
+): Promise<ActionResult<{ temporaryPassword: string | null }>> {
+  const ctx = await requireAccess();
+  const result = await runAction(
+    () => resetMemberPassword(ctx, { membershipId: str(form, "membershipId"), reason: str(form, "reason") }),
+    "New temporary password created.",
+  );
+  return result.ok
+    ? { ok: true, message: result.message, data: { temporaryPassword: result.data?.temporaryPassword ?? null } }
+    : ({ ...result, data: undefined } as ActionResult<{ temporaryPassword: string | null }>);
 }
 
 export async function addMemberAction(

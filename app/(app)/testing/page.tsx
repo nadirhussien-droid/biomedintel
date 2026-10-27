@@ -30,14 +30,24 @@ export default async function TestingPage() {
         title="Safety Tests and Calibration"
         description="Your test equipment (safety analysers and similar tools) and its calibration certificates. A tool must be in calibration before its test results can be trusted. Electrical safety tests follow IEC 62353."
         actions={
-          can(ctx, "testing.manage") ? (
-            <Link
-              href="/testing/new"
-              className="text-navy-900 inline-flex min-h-11 items-center rounded-md border border-teal-400 bg-teal-400 px-4 text-sm font-semibold hover:bg-teal-500"
-            >
-              Register test equipment
-            </Link>
-          ) : null
+          <>
+            {can(ctx, "workorder.work") ? (
+              <Link
+                href="/testing/upload"
+                className="border-line-strong text-navy-900 hover:bg-surface-sunken inline-flex min-h-11 items-center rounded-md border bg-white px-4 text-sm font-semibold"
+              >
+                Upload test results
+              </Link>
+            ) : null}
+            {can(ctx, "testing.manage") ? (
+              <Link
+                href="/testing/new"
+                className="text-navy-900 inline-flex min-h-11 items-center rounded-md border border-teal-400 bg-teal-400 px-4 text-sm font-semibold hover:bg-teal-500"
+              >
+                Register test equipment
+              </Link>
+            ) : null}
+          </>
         }
       />
 

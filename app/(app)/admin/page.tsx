@@ -29,6 +29,7 @@ import {
   CreateHospitalForm,
   RemoveMemberForm,
   ResetMfaForm,
+  ResetPasswordForm,
 } from "./forms";
 
 export const metadata: Metadata = { title: "User and Organization Administration" };
@@ -204,6 +205,11 @@ export default async function AdminPage({
                   <td className="px-3 py-2.5">
                     <div className="font-medium">{m.user.name}</div>
                     <div className="text-ink-muted text-xs">{m.user.email}</div>
+                    {can(ctx, "member.resetPassword") && m.id !== ctx.membershipId && m.status === "ACTIVE" ? (
+                      <div className="mt-1">
+                        <ResetPasswordForm membershipId={m.id} name={m.user.name} />
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2.5">
                     {can(ctx, "member.changeRole") && m.id !== ctx.membershipId && m.status === "ACTIVE" ? (

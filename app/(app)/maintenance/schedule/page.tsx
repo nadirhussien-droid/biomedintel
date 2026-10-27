@@ -12,7 +12,8 @@ import { PRIORITIES, PRIORITY_LABELS, type PriorityValue } from "@/lib/validatio
 
 export const metadata: Metadata = { title: "Maintenance schedule" };
 
-const control = "min-h-11 w-full rounded-sm border border-line-strong bg-white px-3 text-sm text-ink";
+const control =
+  "min-h-11 w-full min-w-0 max-w-full rounded-sm border border-line-strong bg-white px-3 text-sm text-ink";
 const linkButton = "inline-flex min-h-11 items-center justify-center rounded-md border px-4 text-sm font-semibold";
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -152,14 +153,14 @@ export default async function SchedulePage({ searchParams }: { searchParams: Sea
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
               <label htmlFor="pm-from" className="text-sm font-semibold">
                 From
               </label>
               <input id="pm-from" name="from" type="date" defaultValue={q.from ?? ""} className={`${control} mt-1.5`} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label htmlFor="pm-to" className="text-sm font-semibold">
                 To
               </label>
@@ -222,8 +223,8 @@ export default async function SchedulePage({ searchParams }: { searchParams: Sea
             value={q.priority}
             options={PRIORITIES.map((p) => [p, PRIORITY_LABELS[p]])}
           />
-          <div className="grid grid-cols-2 gap-2">
-            <div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
               <label htmlFor="pm-sort" className="text-sm font-semibold">
                 Sort by
               </label>
@@ -234,7 +235,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Sea
                 <option value="priority">Priority</option>
               </select>
             </div>
-            <div>
+            <div className="min-w-0">
               <label htmlFor="pm-dir" className="text-sm font-semibold">
                 Order
               </label>

@@ -13,6 +13,7 @@
 // (source, approver, effective date). Equipment without an approved plan is
 // listed for review; BiomedIntel.ai never invents a schedule (the category
 // "default PM interval" from Stage 4 is shown as a hint only).
+import { templateOptions } from "./checklist-templates";
 import type { Prisma } from "../db/generated/client";
 import { withTenant, type Tx } from "../db/tenant";
 import { audit, auditStandalone } from "../audit/audit";
@@ -822,6 +823,11 @@ export async function getPlan(ctx: AccessContext, id: string) {
 /** Choices for the plan form, limited to what the user may use. */
 export async function planFormOptions(ctx: AccessContext) {
   await requirePermission(ctx, "pm.manage", { entityType: "maintenance_plan" });
+  const saved = await templateOptions(ctx);
+  const templates = [
+    { label: "Your saved templates", list: saved.own },
+    { label: "Starter templates", list: saved.builtIn },
+  ].filter((g) => g.list.length > 0);
   return withTenant(tenant(ctx), async (tx) => {
     const [models, categories, departmentRows, assets, workers] = await Promise.all([
       tx.equipmentModel.findMany({
@@ -877,6 +883,7 @@ export async function planFormOptions(ctx: AccessContext) {
       assignees: workers
         .map((w) => ({ userId: w.userId, name: names[w.userId] ?? "Unknown", role: w.role }))
         .sort((a, b) => a.name.localeCompare(b.name)),
+      templates,
     };
   });
 }

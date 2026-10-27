@@ -359,6 +359,7 @@ model Organization {
   calibrationRecords   CalibrationRecord[]
   labourRates          LabourRate[]
   letterheads          OrganizationLetterhead[]
+  checklistTemplates   ChecklistTemplate[]
   calibrationCertificates CalibrationCertificate[]
   attachments         Attachment[]
   logos               OrganizationLogo[]
@@ -2679,4 +2680,25 @@ model OrganizationLetterhead {
 
   @@index([organizationId, createdAt(sort: Desc)])
   @@map("organization_letterheads")
+}
+
+/// A checklist an organisation saved for a type of device, picked when making a plan.
+/// Edited in place and archived, never deleted.
+model ChecklistTemplate {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  deviceType     String?      @map("device_type")
+  description    String?
+  checklist      Json
+  status         RecordStatus @default(ACTIVE)
+  createdById    String       @map("created_by")
+  updatedById    String       @map("updated_by")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+  @@map("checklist_templates")
 }

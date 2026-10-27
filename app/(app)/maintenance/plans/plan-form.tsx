@@ -42,6 +42,7 @@ export type PlanFormOptions = {
   departments: { id: string; name: string; hospitalId: string }[];
   assets: { id: string; assetTag: string; name: string; hospitalId: string }[];
   assignees: { userId: string; name: string; role: string }[];
+  templates?: { label: string; list: PickableTemplate[] }[];
 };
 
 export type PlanDefaults = {
@@ -101,15 +102,22 @@ let counter = 0;
 const newKey = (section: string) =>
   `${section.slice(0, 4).toLowerCase()}_${Date.now().toString(36)}${(counter++).toString(36)}`;
 
-function ChecklistEditor({
+export type PickableTemplate = { id: string; name: string; description: string; items: ChecklistItem[] };
+
+export function ChecklistEditor({
   items,
   setItems,
   error,
+  templates,
 }: {
   items: ChecklistItem[];
   setItems: (i: ChecklistItem[]) => void;
   error?: string[];
+  /** Built-in starters and the organisation's saved templates. Defaults to the built-in starters. */
+  templates?: { label: string; list: PickableTemplate[] }[];
 }) {
+  const groups = templates ?? [{ label: "Starter templates", list: TEST_TEMPLATES }];
+  const all = groups.flatMap((g) => g.list);
   const update = (i: number, patch: Partial<ChecklistItem>) =>
     setItems(items.map((it, k) => (k === i ? { ...it, ...patch } : it)));
   const move = (i: number, d: number) => {
@@ -136,10 +144,14 @@ function ChecklistEditor({
             className="border-line-strong text-ink min-h-11 rounded-sm border bg-white px-3 text-sm"
           >
             <option value="">Choose a template…</option>
-            {TEST_TEMPLATES.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
+            {groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.list.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
@@ -147,14 +159,14 @@ function ChecklistEditor({
           variant="secondary"
           disabled={!template}
           onClick={() => {
-            const t = TEST_TEMPLATES.find((x) => x.id === template);
+            const t = all.find((x) => x.id === template);
             if (t) setItems(t.items.map((it) => ({ ...it })));
           }}
         >
           Replace checklist with template
         </Button>
         <p className="text-ink-muted w-full text-xs">
-          {TEST_TEMPLATES.find((x) => x.id === template)?.description ??
+          {all.find((x) => x.id === template)?.description ??
             "Templates are starting points. Different devices (for example an ECG monitor and a ventilator) need different tests and values: edit the items and limits from the manufacturer manual before approving the plan."}
         </p>
       </div>
@@ -704,6 +716,7 @@ export function PlanForm({ options, defaults }: { options: PlanFormOptions; defa
       <ChecklistEditor
         items={items}
         setItems={setItems}
+        templates={options.templates}
         error={
           err(state, "checklist") ??
           (state && !state.ok
